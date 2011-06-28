@@ -15,22 +15,20 @@ import math
 if __name__ == "__main__":
     r.gROOT.LoadMacro("predict.C+")
 
-    # Load MC pseudo-data
+    # Load MC pseudo-data in bins
     data = utils.getZeroMC()
+    # This also calculates statistical uncertainties
     results = utils.makePredictions(data)
 
-    for b in data:
-        print b.R(), b.mcSignal(), b.mcControl()
+    # Get the scaled/smeared systematic variations
     systs = utils.getSystematicsBkg()
+
+    # Loop through systematics and calculate systematic uncertainty
     for name, scaled in systs:
         utils.addSystematic(name, data, results, scaled)
         print name
-        for idx, b in enumerate(scaled[0]):
-            print scaled[1][idx].R(), scaled[1][idx].mcSignal(), scaled[1][idx].mcControl()
-            print data[idx].R(), data[idx].mcSignal(), data[idx].mcControl()
-            print b.R(), b.mcSignal(), b.mcControl()
-            print "-----"
 
+    # LaTeX table
     l = Table()
     cols = [("value", "Bin", "l")] + [("bin%d" % i, utils.formatBin(i), "c") for i in range(len(bins))]
 
@@ -51,6 +49,8 @@ if __name__ == "__main__":
                             results[idx].statErrorValue("stat_control")**2)*100/results[idx].predicted())))
     l.addRowFields(value = "\\hspace{0.5cm}Control Region Stat. (\%)",
                    **fields(lambda idx : "%.2f" % (results[idx].statErrorValue("stat_control")*100/results[idx].predicted())))
+
+    # For each systematic, display percentage uncertainty on predicted number of events
     for name, scaled in systs:
         l.addRowFields(value = "\\hspace{0.5cm}%s (\%%)" % systInfo[name]["title"],
                        **fields(lambda idx : "%.2f" % (results[idx].systErrorValue(name)*100/results[idx].predicted())))
@@ -64,9 +64,12 @@ if __name__ == "__main__":
     # row["bin"] = "Combined"
     # row["sig"] = "%.1f" % combined.getChi2()
     # l.addRow(row)
-    print l.render()
-    combined.getResiduals().Print()
 
-    combined.getCovarianceMatrix().Print()
-    print combined.getChi2()
-    print math.sqrt(2)*r.TMath.ErfInverse(1 - r.TMath.Prob(combined.getChi2(), len(bin_data)))
+    # Render table
+    print l.render()
+
+    # combined.getResiduals().Print()
+
+    # combined.getCovarianceMatrix().Print()
+    # print combined.getChi2()
+    # print math.sqrt(2)*r.TMath.ErfInverse(1 - r.TMath.Prob(combined.getChi2(), len(bin_data)))

@@ -3,12 +3,17 @@ import config as cfg
 import os.path
 
 def formatBin(idx):
+    """ Return a human readable bin name """
     if idx < len(cfg.bins) -1:
         return "%d - %d" % (cfg.bins[idx], cfg.bins[idx+1])
     else:
         return " $>$ %d" % cfg.bins[idx]
 
 def buildHist(samples, files, histpath, scale_factors):
+    """ Loop through sample list 'samples' and fetch histogram at 'histpath'
+    from TFile dictionary 'files'. Optionally look up scale factor from
+    'scale_factors' and scale histogram appropriately.
+    """
     h = files[samples[0]].Get(histpath).Clone()
     for s in samples[1:]:
         tmp = files[s].Get(histpath)
@@ -20,15 +25,22 @@ def buildHist(samples, files, histpath, scale_factors):
     return h
 
 def getFile(fname, fset, default_fset="zero"):
-    fpath = fname % cfg.path[fset]
-    if not os.path.exists(fpath):
-        print "[WARNING] File: %s" % fname
+    """ Lookup a given filename 'fname', replacing %s in the string with the
+    path to file set 'fset'. If the file can't be found, fall back to the one
+    available in 'default_fset'.
+    """
+    fpath = fname % cfg.path[fset] if not os.path.exists(fpath): print"[WARNING] File: %s" % fname
         print "File not found for systematic '%s'. Using '%s' version instead!" % (fset, default_fset)
         fpath = fname % cfg.path[default_fset]
     if not os.path.exists(fpath): raise IOError("File not found: %s" % fname)
     return r.TFile(fpath)
 
 def extract(fset, data, mc, scale_factors={}):
+    """For the specified data samples 'data' and mc samples 'mc', extract signal
+    and control histograms for the set of files 'fset'. Construct BinData
+    objects (see predict.C) from these. Optionally scale histograms according to
+    'scale_factors' dictionary.
+    """
     tfiles = dict([(n, getFile(fname, fset, "zero")) for (n, fname) in cfg.files.iteritems()])
 
     data_signal = [buildHist(data, tfiles,
@@ -51,7 +63,14 @@ def extract(fset, data, mc, scale_factors={}):
         ]
 
 
-def extractSignalEffs(fset, sample, bin_name, kfactors=None, asdict = False):
+def extractSignalEffs(fset, sample, kfactors=None, asdict = False):
+    """ Extract SUSY signal efficiencies per bin and output each mSUGRA point as a list
+    'fset' : set of files to use
+    'sample' : which sample e.g. tanbeta10
+    'kfactors' : user K-factors for NLO xsection calculation
+    'asdict' : Output a dictionary indexed by (m0, m1/2) instead
+    """
+
     tfiles = dict([(n, getFile(fname, fset, "zero"))
                    for (n, fname) in cfg.files.iteritems()])
     nocuts = tfiles[sample].Get("Counter_BSMGrid_NoCuts").Get("SUSYGrid")
@@ -91,6 +110,8 @@ def extractSignalEffs(fset, sample, bin_name, kfactors=None, asdict = False):
     return effs
 
 def readKFactors(fname):
+    """ Parse k-factors text file in fname and return dictionary keyed by (m0,
+    m1/2)"""
     header = None
     records = {}
     for line in open(fname):
@@ -119,10 +140,13 @@ def readKFactors(fname):
     return header[1:], records
 
 def rootkill(thing) :
+    """ Delete a ROOT object. Needed to avoid memory leaks """
     #free up memory (http://wlav.web.cern.ch/wlav/pyroot/memory.html)
     thing.IsA().Destructor( thing )
 
-# Systematics
+# Background Systematics
+# These functions return the background signal and control yields as BinData
+# objects for each systematic variation (i.e. jec, met resolution etc.)
 def jecSystematicBkg():
     return (extract("metup",   cfg.bkg_samples, cfg.bkg_samples),
             extract("metdown", cfg.bkg_samples, cfg.bkg_samples))
@@ -142,6 +166,8 @@ def WttSystematicBkg():
                     {"tt":0.5, "w":1.3}))
 
 def getSystematicsBkg():
+    """ Return all background systematics filtered by the includeBackgroundSysts
+    list"""
     syst_funcs = {
         "jec"    : jecSystematicBkg,
         "metres" : metresSystematicBkg,
@@ -153,6 +179,8 @@ def getSystematicsBkg():
     for syst in cfg.systInfo.keys():
         if syst in cfg.includeBackgroundSysts: out += [(syst, syst_funcs[syst]())]
     return out
+
+# Signal Systematics
 
 def jecSystematicSignalEff():
     return (extractSignalEffs("metup", cfg.susyScan, cfg.bin_name, cfg.susyScan, asdict=True),
@@ -175,7 +203,10 @@ def getSystematicsSignalEff():
         if syst in cfg.includeSignalSysts and syst in syst_funcs: out += [(syst, syst_funcs[syst]())]
     return out
 
+# General functions for dealing with systematics
 def calcSyst(nom, up, down):
+    """ Return the largest shift (and appropriate sign) per bin from the nominal
+    data to the up and down scaled data."""
     def sign(a, b):
         if a >= b: return 1.0
         else: return -1.0
@@ -190,8 +221,11 @@ def calcSyst(nom, up, down):
     return shifts
 
 def getSystematicShiftsEff(p, up, down):
-    out = []
-    (m0, m12) = (p["m0"], p["m1/2"])
+    """ Calculate signal efficiency systematics.  p is a single mSUGRA
+    point. up, down are dictionaries (keyed with m0,m1/2) for the up and down
+    scaled SUSY points.
+    """
+    out = [] (m0, m12) = (p["m0"], p["m1/2"])
     if not (m0, m12) in up or not (m0, m12) in down:
         return None
     up_eff = up[(m0, m12)]["efficiencies"]
@@ -200,38 +234,49 @@ def getSystematicShiftsEff(p, up, down):
 
 
 def getSystematicShiftsR(nom, up, down):
+    """ Get systematic shift on R (Nsignal/Ncontrol) per bin"""
     nom = map(lambda x : x.R(), nom)
     up = map(lambda x: x.R(), up)
     down = map(lambda x : x.R(), down)
     return calcSyst(nom, up, down)
 
+
 def getZeroMC():
+    """ Return background only MC without systematic variation """
     return extract("zero", cfg.bkg_samples, cfg.bkg_samples, cfg.bin_name)
 def getZeroMCData():
+    """ Return MC pseudodata (possibly containing signal) without syst variation"""
     return extract("zero", cfg.data_samples, cfg.bkg_samples, cfg.bin_name)
 def getZeroMCSignal():
-    return extractSignalEffs("zero", cfg.susyScan, cfg.bin_name, cfg.susyScan)
+    """ Return mSUGRA efficiencies without systematic variation"""
+    return extractSignalEffs("zero", cfg.susyScan, cfg.susyScan)
 
 def makePredictions(data):
+    """ Turn BinData objects into BinResult representing prediction """
     return [r.createBin(databin) for databin in data]
 
 def addSystematic(name, data, results, syst):
+    """ Add systematic contribution to bins """
     for idx, res in enumerate(results):
         r.addSystematic(name, res, data[idx], syst[0][idx], syst[1][idx])
 
 def getSignalSystematics():
+    """ Return systematics affecting signal expectation """
     return [name for name, fields in cfg.systInfo.iteritems()
             if fields["signal"] and name in cfg.includeSignalSysts]
 
 def getBackgroundSystematics():
+    """ Return systematics affecting background prediction """
     return [name for name, fields in cfg.systInfo.iteritems()
             if fields["background"] and name in cfg.includeBackgroundSysts]
 
 def getAllSystematics():
+    """ Return all systematics """
     return set(getSignalSystematics()) | set(getBackgroundSystematics())
 
 
 def loadFile(fname):
+    """ Generic load file. json/picle depending on extension."""
     if fname.endswith(".json"):
         import json
         return json.load(open(fname))
@@ -243,11 +288,13 @@ def loadFile(fname):
         return res
 
 def saveFile(ob, fname):
+    """ Generic save file. json/picle depending on extension."""
     if fname.endswith(".json"):
         import json
         json.dump(ob, open(fname, "w"), indent = 0)
     elif fname.endswith(".pkl"):
         import cPickle as pickle
         p = pickle.Pickler(open(fname, "wb"))
+        # Needed to avoid bad_alloc
         p.fast = True
         p.dump(ob)
