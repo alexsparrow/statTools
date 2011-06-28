@@ -21,11 +21,6 @@ def chunks(l, n):
     for i in xrange(0, len(l), n):
         yield l[i:i+n]
 
-#     # jec_eff_up = [abs(up) for up, zero in zip(susyEff_metup[(p["m0"], p["m1/2"])]["eff"], p["eff"])]
-#     # jec_eff_down = [abs(down) for down, zero in zip(susyEff_metdown[(p["m0"], p["m1/2"])]["eff"], p["eff"])]
-#     # jec_eff_sign = [sign(up, zero) for up, zero in zip(susyEff_metup[(p["m0"], p["m1/2"])], p["eff"])]
-#     # jec_eff_shift = [ssign*max(a, b) for a, b, ssign in zip(jec_eff_up, jec_eff_down, jec_eff_sign)]
-
 def setupLimit(actions):
     # Get the background prediction per bin
     data = utils.getZeroMCData()
@@ -39,13 +34,26 @@ def setupLimit(actions):
         Rshifts[name] = utils.getSystematicShiftsR(mc, scaled[0], scaled[1])
 
     print "Extracting signal data..."
-    susyEff = utils.extractSignalEffs("zero", cfg.susyScan, cfg.bin_name, "tanbeta10")
-    susyEff_metup = utils.extractSignalEffs("metup", cfg.susyScan, cfg.bin_name, "tanbeta10", asdict=True)
-    susyEff_metdown = utils.extractSignalEffs("metdown", cfg.susyScan, cfg.bin_name, "tanbeta10", asdict=True)
-    points = utils.pruneZeros(susyEff)
+    susyEff = utils.getZeroMCSignal()
+    effSysts = utils.getSystematicsSignalEff()
 
-    points = [p for p in points if p["m1/2"] > 200 or p["m0"] > 500]
-    print "Selecting %d points" % len(points)
+    susyPoints = []
+    for idx, p in enumerate(susyEff):
+        drop = None
+        for name, scaled in effSysts:
+            shift = utils.getSystematicShiftsEff(p, scaled[0], scaled[1])
+            if not shift:
+                drop = "Missing syst %s" % name
+                break
+            else: p["eff%sShift" % name] = shift
+        if sum(p["efficiencies"]) < 0.05:
+            drop = "Low efficiency sum"
+        elif p["m0"] < 500 and p["m1/2"] < 200:
+            drop = "Out of range"
+        if drop: print "Dropping point: %d, %d. %s" % (p["m0"], p["m1/2"], drop)
+        else: susyPoints.append(p)
+
+    print "Selecting %d points out of %d" % (len(susyPoints), len(susyEff))
 
     dataInfo = {
         "NObserved": [b.observed() for b in data]
@@ -57,7 +65,7 @@ def setupLimit(actions):
 
     systematics = {
         "signal" : utils.getSignalSystematics(),
-        "bg_only" : utils.getBackgroundOnlySystematics()
+        "background" : utils.getBackgroundSystematics()
         }
 
     for name, shifts in Rshifts.iteritems():
@@ -67,7 +75,7 @@ def setupLimit(actions):
         "data" : dataInfo,
         "background" : background,
         "systematics" : systematics,
-        "signal" : points,
+        "signal" : susyPoints,
         "actions" : actions
         }
 
@@ -82,6 +90,7 @@ def workOnPoint(actions, dataInfo, backgroundInfo, systematics, signalPoint):
                                                 backgroundInfo, signalPoint,
                                                 systematics)
     w.Print()
+    #print signalPoint
 
     for act in actions:
         if act["name"] == "limit":
@@ -180,7 +189,7 @@ if __name__ == "__main__":
             open("%s/run.sh" % job_dir,"w").write("""#!/bin/sh
             source %(cwd)s/envIC2.sh
             cd %(cwd)s
-            ./limits.py --batch-run %(job_dir)s/${SGE_TASK_ID} --fork %(fork)d --timeout %(timeout)d
+            ./runLimit.py --batch-run %(job_dir)s/${SGE_TASK_ID} --fork %(fork)d --timeout %(timeout)d
             """ % {"cwd": os.getcwd(), "job_dir" : job_dir, "fork" : opts.fork, "timeout" : opts.timeout})
         subJobs(job_dir, idx)
         print "Scheduled %s jobs: %s" % (idx, job_dir)
@@ -190,7 +199,7 @@ if __name__ == "__main__":
             print "Starting batch job!"
             ofile = "%s/results.json" % opts.batch_run
         else:
-            ofile = output_file
+            ofile = opts.output_file
         results = runLimit(task, opts.fork, opts.timeout)
         json.dump({"results" : results},
                   open(ofile, "w"))
@@ -207,7 +216,7 @@ if __name__ == "__main__":
             idx += 1
         points = []
         for idx, fname in enumerate(files):
-            if idx % 10 == 0: print "Scanning file %d" % idx
+            if idx % 10 == 0: print "Scanning file %d/%d" % (idx, len(files))
             pointsToAdd = utils.loadFile(fname)["results"]
             points.extend(pointsToAdd)
             if len(pointsToAdd) == 0:

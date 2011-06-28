@@ -7,7 +7,10 @@ import utils
 
 files = [
     ("std","limits_with_systs.pkl"),
-    ("nosyst", "limits_no_systs.pkl")
+    ("nosyst", "limits_no_systs.pkl"),
+    ("lm1", "limit_signal.pkl"),
+    ("lm1_nuis", "limit_sig_nuisance.pkl"),
+    ("sigeff_syst", "limits_sigeffsyst.pkl")
     ]
 
 nogc = []
@@ -43,10 +46,13 @@ def plotContours(conts, name, dir=None):
     c.SetGrid()
     leg = makeLegend()
     line_cols = [r.kRed, r.kBlue, r.kGreen, r.kBlack]
-    for idx, (n, cont) in enumerate(conts):
+    sorted_conts = sorted(conts, key = lambda x : r.TMath.MaxElement(x[1].GetN(),x[1].GetY()), reverse=True)
+
+    for idx, (n, cont) in enumerate(sorted_conts):
         cont.SetLineColor(line_cols[idx])
         if idx == 0 : cont.Draw("AC")
         else: cont.Draw("C same")
+    for n, cont in conts:
         leg.AddEntry(cont, n, "L")
     drawBenchmarkPoints()
     leg.Draw()

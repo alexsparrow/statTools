@@ -19,9 +19,17 @@ if __name__ == "__main__":
     data = utils.getZeroMC()
     results = utils.makePredictions(data)
 
+    for b in data:
+        print b.R(), b.mcSignal(), b.mcControl()
     systs = utils.getSystematicsBkg()
     for name, scaled in systs:
         utils.addSystematic(name, data, results, scaled)
+        print name
+        for idx, b in enumerate(scaled[0]):
+            print scaled[1][idx].R(), scaled[1][idx].mcSignal(), scaled[1][idx].mcControl()
+            print data[idx].R(), data[idx].mcSignal(), data[idx].mcControl()
+            print b.R(), b.mcSignal(), b.mcControl()
+            print "-----"
 
     l = Table()
     cols = [("value", "Bin", "l")] + [("bin%d" % i, utils.formatBin(i), "c") for i in range(len(bins))]

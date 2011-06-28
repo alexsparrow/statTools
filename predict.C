@@ -119,7 +119,9 @@ struct BinData{
   double R(){ return mc_signal/mc_control; }
   double predict(){ return R()*data_control; }
   double observed(){ return data_signal; }
-      double control(){ return data_control; }
+  double control(){ return data_control; }
+  double mcSignal(){ return mc_signal; }
+  double mcControl(){ return mc_control; }
 };
 
 

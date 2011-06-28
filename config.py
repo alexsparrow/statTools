@@ -82,16 +82,22 @@ systs = {
     }
 
 # List of systematics
-fields =          [             "name",   "title",                      "signal"]
+fields =          [             "name",   "title",                      "signal", "background"]
 systInfo =  {
-    "jec" :    dict(zip(fields, ["jec",    "JES Uncertainty",            True    ])),
-    "metres" : dict(zip(fields, ["metres", "MET Resolution Uncertainty", True,   ])),
-    "lep"    : dict(zip(fields, ["lep",    "Lepton pT Scale",            True,   ])),
-    "pol"    : dict(zip(fields, ["pol",    "W Polarisation",             False,  ])),
-    "Wtt"    : dict(zip(fields, ["Wtt",    "W/tt Ratio",                 False,  ])),
+    "jec" :    dict(zip(fields, ["jec",    "JES Uncertainty",            True,    True])),
+    "metres" : dict(zip(fields, ["metres", "MET Resolution Uncertainty", True,    True])),
+    "lep"    : dict(zip(fields, ["lep",    "Lepton pT Scale",            True,    True])),
+    "pol"    : dict(zip(fields, ["pol",    "W Polarisation",             False,   True])),
+    "Wtt"    : dict(zip(fields, ["Wtt",    "W/tt Ratio",                 False,   True])),
 }
 
 plusMinus = {"OneSigma" : 1.0}
 
-includeSysts = ["jec", "metres", "pol", "Wtt"]
-includeSysts = []
+includeSignalSysts = [
+    "jec",
+    ]
+includeBackgroundSysts = [
+    "jec",
+    "metres",
+    "Wtt"
+    ]

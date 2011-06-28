@@ -11,8 +11,8 @@ def OneLeptonSimple( constants, data, backgroundInfo, signalInfo=None, systs=Non
     model = None
     if systs:
         sig_systs = systs["signal"]
-        bg_only_systs = systs["bg_only"]
-        systs = sig_systs + bg_only_systs
+        bg_systs = systs["background"]
+        systs = set(sig_systs) | set(bg_systs)
     else:
         systs = bg_only_systs = sig_systs = []
 
@@ -24,7 +24,7 @@ def OneLeptonSimple( constants, data, backgroundInfo, signalInfo=None, systs=Non
         r.RooMsgService.instance().setGlobalKillBelow(r.RooFit.DEBUG)
 
     def signalTerms():
-        wimport(r.RooRealVar("f", "f", 0.1, 0.0, 2.0))
+        wimport(r.RooRealVar("f", "f", 0.1, 0.0, 2.0)) # f was 0.1
         wimport(r.RooRealVar("xs", "xs", signalInfo["xs"]))
         wimport(r.RooRealVar("lumi", "lumi", constants["lumi"]))
         wimport(r.RooRealVar("nuLumiMean", "nuLumiMean", 1.0))
@@ -65,7 +65,7 @@ def OneLeptonSimple( constants, data, backgroundInfo, signalInfo=None, systs=Non
             obs.append("nuBkgNControl%dMean" % idx)
             nuis.append("nuBkgNControl%d" % idx)
             R_systs = []
-            for syst in bg_only_systs:
+            for syst in bg_systs:
                 if ("R%sShift" % syst) in backgroundInfo:
                     name = "bkgR%d%s" % (idx, syst)
                     wimport(r.RooRealVar("%sShift" % name, "%sShift" % name,
@@ -82,18 +82,18 @@ def OneLeptonSimple( constants, data, backgroundInfo, signalInfo=None, systs=Non
 
     def signalBins():
         for idx, eff in enumerate(signalInfo["efficiencies"]):
-            wimport(r.RooRealVar("signalEffNom%d" % idx, "signalEff%d" % idx, eff))
+            wimport(r.RooRealVar("signalEffNom%d" % idx, "signalEffNom%d" % idx, eff))
             signalEff_systs = []
             for syst in sig_systs:
                 if "eff%sShift" % syst in signalInfo:
                     name = "signalEff%d%s" % (idx, syst)
-                    wimport(r.RooRealVar(name+"Shift", name+"Shift" % idx,
+                    wimport(r.RooRealVar(name+"Shift", name+"Shift",
                                          signalInfo["eff%sShift" % syst][idx]))
-                    wimport(r.RooFormulaVar(name+"Scale" % idx, "((@0) + (@1)*(@2))/(@3)",
+                    wimport(r.RooFormulaVar(name+"Scale", "((@0) + (@1)*(@2))/(@3)",
                                             r.RooArgList(w.var("signalEffNom%d" % idx), w.var("nu%s" % syst),
-                                                         w.var(name+"Shift" % idx),
+                                                         w.var(name+"Shift"),
                                                          w.var("signalEffNom%d" % idx))))
-                    signalEff_systs += [name+"Scale" % idx]
+                    signalEff_systs += [name+"Scale"]
 
             signalEff_terms = [w.var("signalEffNom%d" % idx)]
             signalEff_terms.extend([w.function(syst) for syst in signalEff_systs])

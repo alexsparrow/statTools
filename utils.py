@@ -118,9 +118,6 @@ def readKFactors(fname):
         records[(int(pdict["m0"]), int(pdict["m1/2"]))] = pdict
     return header[1:], records
 
-def pruneZeros(effs):
-    return [k for k in effs if sum(k["efficiencies"]) > 0.05]
-
 def rootkill(thing) :
     #free up memory (http://wlav.web.cern.ch/wlav/pyroot/memory.html)
     thing.IsA().Destructor( thing )
@@ -154,26 +151,66 @@ def getSystematicsBkg():
         }
     out = []
     for syst in cfg.systInfo.keys():
-        if syst in cfg.includeSysts: out += [(syst, syst_funcs[syst]())]
+        if syst in cfg.includeBackgroundSysts: out += [(syst, syst_funcs[syst]())]
     return out
 
-def getSystematicShiftsR(nom, up, down):
+def jecSystematicSignalEff():
+    return (extractSignalEffs("metup", cfg.susyScan, cfg.bin_name, cfg.susyScan, asdict=True),
+            extractSignalEffs("metdown", cfg.susyScan, cfg.bin_name, cfg.susyScan, asdict=True))
+def metresSystematicSignalEff():
+    one = extractSignalEffs("metres", cfg.susyScan, cfg.bin_name, cfg.susyScan, asdict=True)
+    return (one, one)
+def lepSystematicSignalEff():
+    one = extract("muscale", cfg.susyScan, cfg.bin_name, cfg.susyScan, asdict=True)
+    return (one, one)
+
+def getSystematicsSignalEff():
+    syst_funcs = {
+        "jec" : jecSystematicSignalEff,
+        "metres" : metresSystematicSignalEff,
+        "lep" : lepSystematicSignalEff
+        }
+    out = []
+    for syst in cfg.systInfo.keys():
+        if syst in cfg.includeSignalSysts and syst in syst_funcs: out += [(syst, syst_funcs[syst]())]
+    return out
+
+def calcSyst(nom, up, down):
     def sign(a, b):
         if a >= b: return 1.0
         else: return -1.0
     def symmetriseSyst(a, b):
         return max(a, b)
-    shift_up = [abs(up[idx].R() - b.R()) for idx, b in enumerate(nom)]
-    shift_down = [abs(b.R() - down[idx].R()) for idx, b in enumerate(nom)]
-    shift_sign = [sign(up[idx].R(), b.R()) for idx, b in enumerate(nom)]
-    shifts = [ssign*symmetriseSyst(a, b)
-              for a, b, ssign in zip(shift_up, shift_down, shift_sign)]
+
+    shift_up = [abs(u - n) for u, n in zip(up, nom)]
+    shift_down = [abs(d - n) for d, n in zip(down, nom)]
+    shift_sign = [sign(u, n) for u, n in zip(up, nom)]
+    shifts = [ssign*symmetriseSyst(u, d) for u, d, ssign in
+              zip(shift_up, shift_down, shift_sign)]
     return shifts
+
+def getSystematicShiftsEff(p, up, down):
+    out = []
+    (m0, m12) = (p["m0"], p["m1/2"])
+    if not (m0, m12) in up or not (m0, m12) in down:
+        return None
+    up_eff = up[(m0, m12)]["efficiencies"]
+    down_eff = down[(m0, m12)]["efficiencies"]
+    return calcSyst(p["efficiencies"], up_eff, down_eff)
+
+
+def getSystematicShiftsR(nom, up, down):
+    nom = map(lambda x : x.R(), nom)
+    up = map(lambda x: x.R(), up)
+    down = map(lambda x : x.R(), down)
+    return calcSyst(nom, up, down)
 
 def getZeroMC():
     return extract("zero", cfg.bkg_samples, cfg.bkg_samples, cfg.bin_name)
 def getZeroMCData():
     return extract("zero", cfg.data_samples, cfg.bkg_samples, cfg.bin_name)
+def getZeroMCSignal():
+    return extractSignalEffs("zero", cfg.susyScan, cfg.bin_name, cfg.susyScan)
 
 def makePredictions(data):
     return [r.createBin(databin) for databin in data]
@@ -182,15 +219,16 @@ def addSystematic(name, data, results, syst):
     for idx, res in enumerate(results):
         r.addSystematic(name, res, data[idx], syst[0][idx], syst[1][idx])
 
-def getAllSystematics():
-    return [name for name, field in cfg.systInfo.iteritems()]
-
 def getSignalSystematics():
     return [name for name, fields in cfg.systInfo.iteritems()
-            if fields["signal"]]
-def getBackgroundOnlySystematics():
-    return list(set(getAllSystematics())
-            - set(getSignalSystematics()))
+            if fields["signal"] and name in cfg.includeSignalSysts]
+
+def getBackgroundSystematics():
+    return [name for name, fields in cfg.systInfo.iteritems()
+            if fields["background"] and name in cfg.includeBackgroundSysts]
+
+def getAllSystematics():
+    return set(getSignalSystematics()) | set(getBackgroundSystematics())
 
 
 def loadFile(fname):
