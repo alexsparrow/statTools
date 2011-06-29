@@ -13,6 +13,35 @@ def plInterval(w, modelConfig, dataset, cl=0.95, poi="f"):
      utils.rootkill(interval)
      return (low, high)
 
+def cls(w, modelConfig, dataset, method, nToys):
+    def indexFraction(item, l):
+        totalList = sorted(l+[item])
+        return totalList.index(item)/(0.0+len(totalList))
+
+    def pValue(w, nToys):
+        results = rooFitResults(w.pdf("model"), dataset)
+        w.saveSnapshot("snap", w.allVars())
+        maxData = -results.minNll()
+        maxs = []
+        for i,dset in enumerate(pseudoData(w, nToys)):
+            w.loadSnapshot("snap")
+            results = rooFitResults(w.pdf("model"), dset)
+            maxs.append(-results.minNll())
+            utils.rootkill(results)
+        return indexFraction(maxData, maxs)
+
+    out = []
+
+    if method == "Toys":
+        w.var("f").setVal(1.0)
+        w.var("f").setConstant()
+        out["CLb"] = 1.0 - pValue(w, dataset, nToys)
+        w.var("f").setVal(1.0)
+        w.var("f").setConstant()
+        out["CLs+b"] = pValue(w, dataset, nToys)
+
+    out["CLs"] = out["CLs+b"]/out["CLb"] if out["CLb"] else 9.9
+
 def pseudoData(w, n):
     dataset = w.pdf("model").generate(w.set("obs"), n)
     out = []

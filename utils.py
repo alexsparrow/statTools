@@ -29,7 +29,9 @@ def getFile(fname, fset, default_fset="zero"):
     path to file set 'fset'. If the file can't be found, fall back to the one
     available in 'default_fset'.
     """
-    fpath = fname % cfg.path[fset] if not os.path.exists(fpath): print"[WARNING] File: %s" % fname
+    fpath = fname % cfg.path[fset]
+    if not os.path.exists(fpath):
+        print "[WARNING] File: %s" % fname
         print "File not found for systematic '%s'. Using '%s' version instead!" % (fset, default_fset)
         fpath = fname % cfg.path[default_fset]
     if not os.path.exists(fpath): raise IOError("File not found: %s" % fname)
@@ -183,13 +185,13 @@ def getSystematicsBkg():
 # Signal Systematics
 
 def jecSystematicSignalEff():
-    return (extractSignalEffs("metup", cfg.susyScan, cfg.bin_name, cfg.susyScan, asdict=True),
-            extractSignalEffs("metdown", cfg.susyScan, cfg.bin_name, cfg.susyScan, asdict=True))
+    return (extractSignalEffs("metup", cfg.susyScan, cfg.susyScan, asdict=True),
+            extractSignalEffs("metdown", cfg.susyScan, cfg.susyScan, asdict=True))
 def metresSystematicSignalEff():
-    one = extractSignalEffs("metres", cfg.susyScan, cfg.bin_name, cfg.susyScan, asdict=True)
+    one = extractSignalEffs("metres", cfg.susyScan, cfg.susyScan, asdict=True)
     return (one, one)
 def lepSystematicSignalEff():
-    one = extract("muscale", cfg.susyScan, cfg.bin_name, cfg.susyScan, asdict=True)
+    one = extract("muscale", cfg.susyScan, cfg.susyScan, asdict=True)
     return (one, one)
 
 def getSystematicsSignalEff():
@@ -225,7 +227,8 @@ def getSystematicShiftsEff(p, up, down):
     point. up, down are dictionaries (keyed with m0,m1/2) for the up and down
     scaled SUSY points.
     """
-    out = [] (m0, m12) = (p["m0"], p["m1/2"])
+    out = []
+    (m0, m12) = (p["m0"], p["m1/2"])
     if not (m0, m12) in up or not (m0, m12) in down:
         return None
     up_eff = up[(m0, m12)]["efficiencies"]

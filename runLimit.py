@@ -143,7 +143,8 @@ def options():
     parser.add_option("-m", "--merge", action="store", type = "string", default = None)
     parser.add_option("-a", "--action", action="store", type = "string", default = "limit")
     parser.add_option("-c", "--confidence-level", action="store", type="float", default = 0.95)
-    parser.add_option("-l", "--limit", action="store_true", default=False)
+    parser.add_option("-l", "--limit", action="append", dest="limit",
+                      choices = ["pl", "clsviatoys"])
     parser.add_option("-t", "--toys", action="store", type="int", default = None)
     parser.add_option("-T", "--timeout", action = "store", type="int", default=60*60)
     parser.add_option("-o", "--output-file", action = "store", type="string", default = "limit.pkl")
@@ -168,9 +169,10 @@ if __name__ == "__main__":
     opts, args = options()
     r.gROOT.LoadMacro("predict.C+")
     actions = []
-    if opts.limit:
+    for meth in opts.limit:
         actions.append({"name":"limit",
-                        "cl":opts.confidence_level})
+                        "cl":opts.confidence_level,
+                        "method": meth})
     if opts.toys:
         actions.append({"name":"toys",
                         "cl":opts.confidence_level,
