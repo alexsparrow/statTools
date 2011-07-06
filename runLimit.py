@@ -21,9 +21,23 @@ def chunks(l, n):
     for i in xrange(0, len(l), n):
         yield l[i:i+n]
 
-def setupLimit(actions):
+def setupLimit(actions, maxPoints):
+    def plot(data, results):
+        c = r.TCanvas("test")
+        nbins = len(data["NObserved"])
+        obs = r.TH1D("obs", "obs", nbins, 0.5, nbins+0.5)
+        pred = r.TH1D("pred", "pred", nbins, 0.5, nbins+0.5)
+        for idx, b in enumerate(data["NObserved"]):
+            obs.SetBinContent(idx+1, b)
+            pred.SetBinContent(idx+1, results[idx].predicted())
+            pred.SetBinError(idx+1, math.sqrt(results[idx].predicted()))
+        pred.SetLineColor(r.kRed)
+        obs.Draw("hist")
+        pred.Draw("hist e same")
+        c.SaveAs("pred_obs.pdf")
+
     # Get the background prediction per bin
-    data = utils.getZeroMCData()
+    data = utils.getZeroData()
     mc = utils.getZeroMC()
     results = utils.makePredictions(data)
 
@@ -53,6 +67,7 @@ def setupLimit(actions):
         if drop: print "Dropping point: %d, %d. %s" % (p["m0"], p["m1/2"], drop)
         else: susyPoints.append(p)
 
+    if maxPoints: susyPoints = susyPoints[:maxPoints]
     print "Selecting %d points out of %d" % (len(susyPoints), len(susyEff))
 
     dataInfo = {
@@ -71,6 +86,7 @@ def setupLimit(actions):
     for name, shifts in Rshifts.iteritems():
         background["R%sShift" % name] = shifts
 
+    plot(dataInfo, results)
     return {
         "data" : dataInfo,
         "background" : background,
@@ -79,13 +95,14 @@ def setupLimit(actions):
         "actions" : actions
         }
 
-def workOnPoint(actions, dataInfo, backgroundInfo, systematics, signalPoint):
+def workOnPoint(actions, dataInfo, backgroundInfo, systematics, signalPoint, rootfname):
     r.gROOT.SetBatch(True)
     r.RooRandom.randomGenerator().SetSeed(1)
     #r.RooMsgService.instance().addStream(r.RooFit.DEBUG, r.RooFit.Topic(r.RooFit.Tracing), r.RooFit.ClassName("RooGaussian"))
     if cfg.use_nloxs: signalPoint["xs"] = signalPoint["nloxs"]
     else: signalPoint["xs"] = signalPoint["loxs"]
 
+    rfile = r.TFile(rootfname, "recreate")
     (w, modelConfig, dataset) = OneLeptonSimple(cfg.constants, dataInfo,
                                                 backgroundInfo, signalPoint,
                                                 systematics)
@@ -94,7 +111,8 @@ def workOnPoint(actions, dataInfo, backgroundInfo, systematics, signalPoint):
 
     for act in actions:
         if act["name"] == "limit":
-            signalPoint["observed"] = capture(w, modelConfig, dataset, act["cl"])
+            signalPoint[act["method"]] = capture(w, modelConfig, dataset, act["cl"], act["method"],
+                                                 signalPoint)
         elif act["name"] == "toys":
             signalPoint["toys"] = []
             for expt_w, expt_dset in toys(w, modelConfig, dataset, act["n"], act["cl"]):
@@ -103,10 +121,11 @@ def workOnPoint(actions, dataInfo, backgroundInfo, systematics, signalPoint):
             signalPoint["quantiles"] = quantiles(limits, cfg.plusMinus)
 
         else: raise ValueError("Invalid action: %s" % act["name"])
+    rfile.Write()
 
     return signalPoint
 
-def runLimit(job, fork, timeout):
+def runLimit(job, fork, timeout, rootfname):
     actions = job["actions"]
     dataInfo = job["data"]
     backgroundInfo = job["background"]
@@ -117,7 +136,7 @@ def runLimit(job, fork, timeout):
         pool = Pool(processes=fork)
         res = []
         for p in signalPoints:
-            args = [actions, dataInfo, backgroundInfo, systematics, p]
+            args = [actions, dataInfo, backgroundInfo, systematics, p, rootfname]
             res.append(pool.apply_async(workOnPoint, args))
         for result in res:
             try:
@@ -144,12 +163,14 @@ def options():
     parser.add_option("-a", "--action", action="store", type = "string", default = "limit")
     parser.add_option("-c", "--confidence-level", action="store", type="float", default = 0.95)
     parser.add_option("-l", "--limit", action="append", dest="limit",
-                      choices = ["pl", "clsviatoys"])
+                      choices = ["pl", "clsviatoys"], default=[])
     parser.add_option("-t", "--toys", action="store", type="int", default = None)
     parser.add_option("-T", "--timeout", action = "store", type="int", default=60*60)
     parser.add_option("-o", "--output-file", action = "store", type="string", default = "limit.pkl")
+    parser.add_option("-N", "--N-points", action="store", type="int", default=None)
+    parser.add_option("-n", "--do-nothing", action="store_true")
     (opts, args) = parser.parse_args()
-    if (opts.schedule or opts.run) and not opts.limit and not opts.toys:
+    if (opts.schedule or opts.run) and not opts.limit and not opts.toys and not opts.do_nothing:
         raise ValueError("Must specify action")
     return (opts, args)
 
@@ -178,7 +199,7 @@ if __name__ == "__main__":
                         "cl":opts.confidence_level,
                         "n" : opts.toys})
     if opts.schedule or opts.run:
-        task = setupLimit(actions)
+        task = setupLimit(actions, opts.N_points)
 
     if opts.schedule:
         job_dir = "%s/__limits__%s" % (os.getcwd(), time.strftime("%Y%m%d_%H_%M_%S"))
@@ -200,9 +221,11 @@ if __name__ == "__main__":
             task = json.load(open("%s/job.json" % opts.batch_run))
             print "Starting batch job!"
             ofile = "%s/results.json" % opts.batch_run
+            orootfile = "%s/results.root" % opts.batch_run
         else:
             ofile = opts.output_file
-        results = runLimit(task, opts.fork, opts.timeout)
+            orootfile = opts.output_file.replace(".json", ".root").replace(".pkl", ".root")
+        results = runLimit(task, opts.fork, opts.timeout, orootfile)
         json.dump({"results" : results},
                   open(ofile, "w"))
     elif opts.merge:

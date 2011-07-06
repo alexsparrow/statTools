@@ -21,7 +21,8 @@ def buildHist(samples, files, histpath, scale_factors):
             tmp = tmp.Clone()
             tmp.Scale(scale_factors[s])
         h.Add(tmp)
-    h.Scale(cfg.constants["lumi"]/cfg.constants["icf_default"])
+    if not cfg.use_real_data:
+        h.Scale(cfg.constants["lumi"]/cfg.constants["icf_default"])
     return h
 
 def getFile(fname, fset, default_fset="zero"):
@@ -247,7 +248,7 @@ def getSystematicShiftsR(nom, up, down):
 def getZeroMC():
     """ Return background only MC without systematic variation """
     return extract("zero", cfg.bkg_samples, cfg.bkg_samples, cfg.bin_name)
-def getZeroMCData():
+def getZeroData():
     """ Return MC pseudodata (possibly containing signal) without syst variation"""
     return extract("zero", cfg.data_samples, cfg.bkg_samples, cfg.bin_name)
 def getZeroMCSignal():

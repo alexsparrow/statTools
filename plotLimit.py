@@ -6,11 +6,7 @@ from config import constants, lmPoints
 import utils
 
 files = [
-    ("std","limits_with_systs.pkl"),
-    ("nosyst", "limits_no_systs.pkl"),
-    ("lm1", "limit_signal.pkl"),
-    ("lm1_nuis", "limit_sig_nuisance.pkl"),
-    ("sigeff_syst", "limits_sigeffsyst.pkl")
+    ("limit_data", "limit500pbdata.pkl")
     ]
 
 nogc = []
@@ -84,24 +80,47 @@ def contour(h2d):
 def makeLegend():
     return r.TLegend(0.7, 0.9, 0.9, 0.6)
 
+class AutoHist:
+    def __init__(self):
+        self.hists = {}
+
+    def createHist(self, name, title, *args):
+        if len(args) == 3: return r.TH1D(name, title, *args)
+        elif len(args) == 6: return r.TH2D(name, title, *args)
+
+    def fill(self, name, title, bin_ranges, values):
+        if not name in self.hists:
+            self.hists[name] = self.createHist(name, title, *bin_ranges)
+        self.hists[name].Fill(*values)
+
+    def setcontent(self, name, title, bin_ranges, values):
+        if not name in self.hists:
+            self.hists[name] = self.createHist(name, title, *bin_ranges)
+        self.hists[name].SetBinContent(*values)
+
+
 def extractHists(d):
     out = {}
     lumiString = "%d/pb;m_{0};m_{1/2}" % constants["lumi"]
     hist_opts = (int(max_m0/10), 0, max_m0, int(max_m12/10), 0, max_m12)
-    out["limit"] = r.TH2D("hLimit", "Limit %s" % lumiString, *hist_opts)
-    out["excluded"] =  r.TH2D("hExcluded", "Excluded Region %s" % lumiString, *hist_opts)
-    for syst in utils.getAllSystematics():
-        out["nu%s" % syst] = r.TH2D("nuHist%s" % syst, "%s %s" % (syst, lumiString), *hist_opts)
+    auto = AutoHist()
+
     for idx, p in enumerate(d["results"]):
-        if "observed" in p:
-            (x, y) = int(p["m0"])/10, int(p["m1/2"])/10
-            ul = p["observed"]["limit"][1]
-            out["limit"].SetBinContent(x, y, ul)
-            for syst in utils.getAllSystematics():
-                if syst in p["observed"]:
-                    out["nu%s" % syst].SetBinContent(x, y, p["observed"][syst])
-            if ul <= 1:
-                out["excluded"].SetBinContent(x, y, 1)
+        for k in ["pl", "clsviatoys"]:
+            if k in p:
+                (x, y) = int(p["m0"])/10, int(p["m1/2"])/10
+                if k == "pl": ul = p["pl"]["limit"]["high"]
+                elif k == "clsviatoys":  ul = p["clsviatoys"]["limit"]["CLs"]
+                print ul
+                auto.setcontent("hLimit_%s" % k, "Limit %s" % lumiString, hist_opts, (x, y, ul))
+                for syst in utils.getAllSystematics():
+                    if syst in p[k]:
+                        auto.setcontent("nu%s" % syst, "Nuisance %s" % syst, hist_opts,
+                                        (x, y, p["pl"][syst]))
+                if ul <= 1:
+                    auto.setcontent("hExcluded_%s" % k, "Excluded %s" % lumiString,
+                                    hist_opts, (x, y, 1))
+
         if "quantiles" in p:
             for k, v in p["quantiles"].iteritems():
                 name = "quantile_%s_limit" % k
@@ -113,11 +132,11 @@ def extractHists(d):
                     if not name in out:
                         out[name] = r.TH2D(k+"_excluded", k, *hist_opts)
                     out[name].SetBinContent(x, y, 1)
-    return out
+    return auto.hists
 
 if __name__ == "__main__":
     r.gROOT.SetBatch(True)
-    rootf = r.TFile("limits.root", "recreate")
+    rootf = r.TFile("limit.root", "recreate")
 
     overlay_contours = []
     for lname, fname in files:
@@ -130,12 +149,10 @@ if __name__ == "__main__":
         d = rootf.mkdir(lname)
         d.cd()
         h = extractHists(j)
-        plot2d(h["limit"], "limit", dir=lname)
-        plot2d(h["excluded"], "excluded", dir=lname)
-        for syst in utils.getAllSystematics():
-            plot2d(h["nu%s" % syst], syst, dir=lname)
+        for k, v in h.iteritems():
+            plot2d(v, k, dir=lname)
 
-        obs_contour = contour(h["excluded"])
+        obs_contour = contour(h["hExcluded_clsviatoys"])
 #        overlay_contours += [(lname, obs_contour)]
         conts = [("observed", obs_contour)]
         for name, hist in h.iteritems():

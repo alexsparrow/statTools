@@ -3,6 +3,9 @@
 
 # SumLepPT (or PFMET bins)
 bins = [150, 250, 350, 450]
+
+use_real_data = True
+
 # Whether to do LP analysis
 analysis = "lp"
 # or pfmet
@@ -17,7 +20,9 @@ elif analysis == "pfmet" : bin_name = "PFMETCut"
 bkg_samples = ["w", "tt", "z"]
 # signal MC to use in pseudo-data
 sig_samples = []
-data_samples = bkg_samples + sig_samples
+
+if use_real_data: data_samples = ["data42x"]
+else: data_samples = bkg_samples + sig_samples
 
 # These are paths to various versions of the output ROOT files
 # The zero entry corresponds to unscaled MC
@@ -42,7 +47,8 @@ files = {
     "lm1" : "%s/Muons_LM1_SUSY_sftsht_7TeV_pythia6_Spring11_PU_S1_START311_V1G1_v1.root",
     "lm3" : "%s/Muons_LM3_SUSY_sftsht_7TeV_pythia6_Spring11_PU_S1_START311_V1G1_v1.root",
     "lm6" : "%s/Muons_LM6_SUSY_sftsht_7TeV_pythia6_Spring11_PU_S1_START311_V1G1_v1.root",
-    "tanbeta10" : "%s/tanbeta10.root"
+    "tanbeta10" : "%s/tanbeta10.root",
+    "data42x" : "%s/../resultsData/data.root"
     }
 
 
@@ -62,7 +68,7 @@ use_nloxs = False
 
 # Constants used in limit-setting
 constants = {
-    "lumi"        : 2000.0,       # Integrated luminosity to use for limit setting/systs
+    "lumi"        : 500.0,       # Integrated luminosity to use for limit setting/systs
     "lumiError"   : 0.04,         # Relative error on luminosity estimate (for limit setting)
     "icf_default" : 100.0         # Default luminosity from ICF code
     }

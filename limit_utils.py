@@ -5,13 +5,26 @@ import math, array
 def rooFitResults(pdf, data, options = (r.RooFit.Verbose(False), r.RooFit.PrintLevel(-1), r.RooFit.Save(True))) :
     return pdf.fitTo(data, *options)
 
-def plInterval(w, modelConfig, dataset, cl=0.95, poi="f"):
-     calc = r.RooStats.ProfileLikelihoodCalculator(dataset, modelConfig)
-     calc.SetConfidenceLevel(0.95)
-     interval = calc.GetInterval()
-     (low, high) = (interval.LowerLimit(w.var(poi)), interval.UpperLimit(w.var(poi)))
-     utils.rootkill(interval)
-     return (low, high)
+def plInterval(w, modelConfig, dataset, cl=0.95, poi="f", plot=None):
+    out = {}
+    calc = r.RooStats.ProfileLikelihoodCalculator(dataset, modelConfig)
+    w.var("f").setVal(0.1)
+    w.var("f").setConstant(False)
+
+    calc.SetConfidenceLevel(0.95)
+    interval = calc.GetInterval()
+    out["low"] = interval.LowerLimit(w.var(poi))
+    out["high"] = interval.UpperLimit(w.var(poi))
+
+    if plot:
+        canvas = r.TCanvas(plot)
+        canvas.SetTickx()
+        canvas.SetTicky()
+        plPlot = r.RooStats.LikelihoodIntervalPlot(interval)
+        plPlot.Draw()
+        canvas.Write()
+    utils.rootkill(interval)
+    return out
 
 def cls(w, modelConfig, dataset, method, nToys):
     def indexFraction(item, l):
@@ -30,17 +43,18 @@ def cls(w, modelConfig, dataset, method, nToys):
             utils.rootkill(results)
         return indexFraction(maxData, maxs)
 
-    out = []
+    out = {}
 
     if method == "Toys":
         w.var("f").setVal(1.0)
         w.var("f").setConstant()
-        out["CLb"] = 1.0 - pValue(w, dataset, nToys)
+        out["CLb"] = 1.0 - pValue(w, nToys)
         w.var("f").setVal(1.0)
         w.var("f").setConstant()
-        out["CLs+b"] = pValue(w, dataset, nToys)
+        out["CLs+b"] = pValue(w, nToys)
 
     out["CLs"] = out["CLs+b"]/out["CLb"] if out["CLb"] else 9.9
+    return out
 
 def pseudoData(w, n):
     dataset = w.pdf("model").generate(w.set("obs"), n)
@@ -68,12 +82,16 @@ def toys(w, modelConfig, dataset, nToys, cl=0.95):
         w.loadSnapshot("snap")
         yield w, dataset
 
-def capture(w, modelConfig, dataset, cl):
+def capture(w, modelConfig, dataset, cl, method, signalPoint):
     out = {}
-    out["limit"] = plInterval(w, modelConfig, dataset, cl)
-    for syst in utils.getAllSystematics():
-        try: out["%s" % syst] = w.var("nu%s" % syst).getVal()
-        except ReferenceError: out["%s" % syst] = -1
+    if method == "pl":
+        pl_plot_name = "pl_%(m0)d_%(m1/2)d" % signalPoint
+        out["limit"] = plInterval(w, modelConfig, dataset, cl, plot=pl_plot_name)
+        for syst in utils.getAllSystematics():
+            try: out["%s" % syst] = w.var("nu%s" % syst).getVal()
+            except ReferenceError: out["%s" % syst] = -1
+    elif method == "clsviatoys":
+        out["limit"] = cls(w, modelConfig, dataset, "Toys", 300)
     return out
 
 
