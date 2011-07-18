@@ -7,7 +7,7 @@ import ROOT as r
 import math
 import config as cfg
 import utils
-from likelihood import OneLeptonSimple
+import likelihood
 from multiprocessing import Pool, TimeoutError
 import json
 import time, os, copy
@@ -21,133 +21,156 @@ def chunks(l, n):
     for i in xrange(0, len(l), n):
         yield l[i:i+n]
 
-def setupLimit(actions, maxPoints):
-    def plot(data, results):
+def setupLimit(channel):
+    def makeLegend():
+        return r.TLegend(0.7, 0.9, 0.9, 0.6)
+    def plot(NObserved, results):
         c = r.TCanvas("test")
-        nbins = len(data["NObserved"])
+        r.gROOT.SetStyle("Plain")
+        nbins = len(NObserved)
         obs = r.TH1D("obs", "obs", nbins, 0.5, nbins+0.5)
         pred = r.TH1D("pred", "pred", nbins, 0.5, nbins+0.5)
-        for idx, b in enumerate(data["NObserved"]):
+        for idx, b in enumerate(NObserved):
             obs.SetBinContent(idx+1, b)
             pred.SetBinContent(idx+1, results[idx].predicted())
             pred.SetBinError(idx+1, math.sqrt(results[idx].predicted()))
         pred.SetLineColor(r.kRed)
         obs.Draw("hist")
         pred.Draw("hist e same")
-        c.SaveAs("pred_obs.pdf")
+        leg = makeLegend()
+        leg.AddEntry(pred, "Predicted", "L")
+        leg.AddEntry(obs, "Observed", "L")
+        leg.Draw()
+        c.SaveAs("limit/%s_pred_obs.pdf" % channel.name)
 
     # Get the background prediction per bin
-    data = utils.getZeroData()
-    mc = utils.getZeroMC()
+    if channel is cfg.Electron:
+        ctrl_channel = cfg.Muon
+    else:
+        ctrl_channel = None
+    data = utils.getZeroData(channel, ctrl_channel)
+    mc = utils.getZeroMC(channel, ctrl_channel)
+
+
     results = utils.makePredictions(data)
 
-    systs = utils.getSystematicsBkg()
+    systs = utils.getSystematicsBkg(channel, ctrl_channel)
 
-    Rshifts = {}
+    R = {"nominal": [b.R() for b in data]}
     for name, scaled in systs:
-        Rshifts[name] = utils.getSystematicShiftsR(mc, scaled[0], scaled[1])
-
+        R[name] = utils.getSystematicShiftsR(mc, scaled[0], scaled[1])
+    NObserved = [b.observed() for b in data]
+    NControl = [b.control() for b in data]
     print "Extracting signal data..."
-    susyEff = utils.getZeroMCSignal()
-    effSysts = utils.getSystematicsSignalEff()
+    susyEff = utils.getZeroMCSignal(channel)
+    effSysts = utils.getSystematicsSignalEff(channel)
 
-    susyPoints = []
-    for idx, p in enumerate(susyEff):
-        drop = None
-        for name, scaled in effSysts:
+    for (m0, m12), p in susyEff.iteritems():
+        p["effShift"] = {}
+        for name,scaled in effSysts:
             shift = utils.getSystematicShiftsEff(p, scaled[0], scaled[1])
-            if not shift:
-                drop = "Missing syst %s" % name
-                break
-            else: p["eff%sShift" % name] = shift
-        if sum(p["efficiencies"]) < 0.05:
-            drop = "Low efficiency sum"
-        elif p["m0"] < 500 and p["m1/2"] < 200:
-            drop = "Out of range"
-        if drop: print "Dropping point: %d, %d. %s" % (p["m0"], p["m1/2"], drop)
-        else: susyPoints.append(p)
+            p["effShift"][name] = shift
 
-    if maxPoints: susyPoints = susyPoints[:maxPoints]
-    print "Selecting %d points out of %d" % (len(susyPoints), len(susyEff))
-
-    dataInfo = {
-        "NObserved": [b.observed() for b in data]
-        }
-    background = {
-        "NControl" : [b.control() for b in data],
-        "R": [b.R() for b in data],
-        }
-
-    systematics = {
-        "signal" : utils.getSignalSystematics(),
-        "background" : utils.getBackgroundSystematics()
-        }
-
-    for name, shifts in Rshifts.iteritems():
-        background["R%sShift" % name] = shifts
-
-    plot(dataInfo, results)
+    plot(NObserved, results)
     return {
-        "data" : dataInfo,
-        "background" : background,
-        "systematics" : systematics,
-        "signal" : susyPoints,
-        "actions" : actions
+        "name" : ch.name,
+        "NObserved" : NObserved,
+        "NControl" : NControl,
+        "R" : R,
+        "lumi": ch.lumi,
+        "lumiError": cfg.lumiError,
+        "signal" : susyEff,
         }
 
-def workOnPoint(actions, dataInfo, backgroundInfo, systematics, signalPoint, rootfname):
+def mergeTasks(tasks, maxPoints):
+    out = {"signal":[], "other":{}}
+    for (m0, m12), p in tasks[0]["signal"].iteritems():
+        addPoint = True
+        if m0 < 600 and m12 < 150: continue
+        for t in tasks[1:]:
+            if not (m0, m12) in t["signal"]:
+                addPoint=False
+                break
+        if addPoint:
+            d = dict([(t["name"], t["signal"][(m0, m12)]) for t in tasks])
+            (d["m0"], d["m1/2"]) = (m0, m12)
+            out["signal"].append(d)
+    out["signal"].sort(key = lambda x : (x["m0"], x["m1/2"]))
+    out["signal"] = out["signal"][:maxPoints]
+    for t in tasks:
+        del t["signal"]
+        out["other"][t["name"]] = t
+    return out
+
+
+def workOnPoint(actions, globs, channels, rootfname):
     r.gROOT.SetBatch(True)
     r.RooRandom.randomGenerator().SetSeed(1)
     #r.RooMsgService.instance().addStream(r.RooFit.DEBUG, r.RooFit.Topic(r.RooFit.Tracing), r.RooFit.ClassName("RooGaussian"))
-    if cfg.use_nloxs: signalPoint["xs"] = signalPoint["nloxs"]
-    else: signalPoint["xs"] = signalPoint["loxs"]
-
-    rfile = r.TFile(rootfname, "recreate")
-    (w, modelConfig, dataset) = OneLeptonSimple(cfg.constants, dataInfo,
-                                                backgroundInfo, signalPoint,
-                                                systematics)
+    # rfile = r.TFile(rootfname % os.getpid(), "UPDATE")
+    # rfile.mkdir("susy_%d_%d" % (globs["m0"], globs["m1/2"])).cd()
+    fitChannels = []
+    for c in channels:
+        name = c["name"]
+        R = c["R"]
+        lumi = c["lumi"]
+        NObserved = c["NObserved"]
+        NControl = c["NControl"]
+        signalEff = {"nominal":c["efficiencies"]}
+        for k, v in c["effShift"].iteritems():
+            signalEff[k] = v
+        fitChannels += [likelihood.Channel(name, lumi, NObserved, NControl,
+                                           R, signalEff)]
+    (w, modelConfig, dataset) = likelihood.OneLeptonSimple(globs, *fitChannels)
     w.Print()
     #print signalPoint
 
+    out = globs.copy()
+    out["channels"] = channels
+    out["results"] = {}
     for act in actions:
         if act["name"] == "limit":
-            signalPoint[act["method"]] = capture(w, modelConfig, dataset, act["cl"], act["method"],
-                                                 signalPoint)
+            out["results"][act["method"]] = capture(w, modelConfig, dataset, act["cl"], act["method"],
+                                         globs)
         elif act["name"] == "toys":
-            signalPoint["toys"] = []
+            out["results"]["toys"] = []
             for expt_w, expt_dset in toys(w, modelConfig, dataset, act["n"], act["cl"]):
-                signalPoint["toys"].append(capture(expt_w, modelConfig, expt_dset, act["cl"]))
+                out["results"]["toys"].append(capture(expt_w, modelConfig, expt_dset, act["cl"]))
             limits = [x["limit"][1] for x in signalPoint["toys"]]
-            signalPoint["quantiles"] = quantiles(limits, cfg.plusMinus)
+            out["results"]["quantiles"] = quantiles(limits, cfg.plusMinus)
 
         else: raise ValueError("Invalid action: %s" % act["name"])
-    rfile.Write()
-
-    return signalPoint
+    # rfile.Write()
+    # rfile.Close()
+    return out
 
 def runLimit(job, fork, timeout, rootfname):
-    actions = job["actions"]
-    dataInfo = job["data"]
-    backgroundInfo = job["background"]
-    signalPoints = job["signal"]
-    systematics = job["systematics"]
     pointsOut = []
     if fork > 1:
-        pool = Pool(processes=fork)
+        pool = Pool(fork)
         res = []
-        for p in signalPoints:
-            args = [actions, dataInfo, backgroundInfo, systematics, p, rootfname]
-            res.append(pool.apply_async(workOnPoint, args))
+    for p in job["signal"]:
+        channels = []
+        for k, v in job["other"].iteritems():
+            channels.append(v.copy())
+            channels[-1].update(p[k])
+
+        glob = {}
+        if cfg.use_nloxs: glob["xs"] = channels[0]["nloxs"]
+        else: glob["xs"] = channels[0]["loxs"]
+        (glob["m0"], glob["m1/2"]) = (channels[0]["m0"], channels[0]["m1/2"])
+        glob["lumiError"] = channels[0]["lumiError"]
+        args = [job["actions"], glob, channels, rootfname]
+        if fork > 1: res.append(pool.apply_async(workOnPoint, args))
+        else: pointsOut.append(workOnPoint(*args))
+    if fork > 1:
         for result in res:
             try:
                 print "Waiting..."
                 pointsOut.append(result.get(timeout))
             except TimeoutError:
                 continue
-    else:
-        for p in signalPoints:
-            args = [actions, dataInfo, backgroundInfo, systematics, p]
-            pointsOut.append(workOnPoint(*args))
+
     return pointsOut
 
 
@@ -198,8 +221,14 @@ if __name__ == "__main__":
         actions.append({"name":"toys",
                         "cl":opts.confidence_level,
                         "n" : opts.toys})
+    tasks = []
     if opts.schedule or opts.run:
-        task = setupLimit(actions, opts.N_points)
+        for ch in cfg.channels:
+            tasks += [setupLimit(ch)]
+    if opts.schedule or opts.run:
+        # batch jobs are already pre-merged
+        task = mergeTasks(tasks, opts.N_points)
+        task["actions"] = actions
 
     if opts.schedule:
         job_dir = "%s/__limits__%s" % (os.getcwd(), time.strftime("%Y%m%d_%H_%M_%S"))
@@ -221,23 +250,26 @@ if __name__ == "__main__":
             task = json.load(open("%s/job.json" % opts.batch_run))
             print "Starting batch job!"
             ofile = "%s/results.json" % opts.batch_run
-            orootfile = "%s/results.root" % opts.batch_run
+            orootfile = opts.batch_run + "/results_%d.root"
         else:
             ofile = opts.output_file
-            orootfile = opts.output_file.replace(".json", ".root").replace(".pkl", ".root")
+            orootfile = opts.output_file.replace(".json", "_%d.root").replace(".pkl", "_%d.root")
         results = runLimit(task, opts.fork, opts.timeout, orootfile)
-        json.dump({"results" : results},
-                  open(ofile, "w"))
+        utils.saveFile({"results" : results}, ofile)
     elif opts.merge:
         if os.path.exists(opts.output_file): raise IOError("Output file exists: %s" % opts.output_file)
         else: print "Dumping to file: %s" % opts.output_file
         files = []
         idx = 1
+        nonexist =0
         while True:
             path = "%s/%d/results.json" % (opts.merge, idx)
+            print path
             if not os.path.exists(path):
-                break
-            files += [path]
+                nonexist += 1
+                if nonexist == 10: break
+            else:
+                files += [path]
             idx += 1
         points = []
         for idx, fname in enumerate(files):

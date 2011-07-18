@@ -5,10 +5,10 @@ import math, array
 def rooFitResults(pdf, data, options = (r.RooFit.Verbose(False), r.RooFit.PrintLevel(-1), r.RooFit.Save(True))) :
     return pdf.fitTo(data, *options)
 
-def plInterval(w, modelConfig, dataset, cl=0.95, poi="f", plot=None):
+def plInterval(w, modelConfig, dataset, cl=0.95, poi="f", plot=False):
     out = {}
     calc = r.RooStats.ProfileLikelihoodCalculator(dataset, modelConfig)
-    w.var("f").setVal(0.1)
+    w.var("f").setVal(0.1) # was 0.1
     w.var("f").setConstant(False)
 
     calc.SetConfidenceLevel(0.95)
@@ -17,7 +17,7 @@ def plInterval(w, modelConfig, dataset, cl=0.95, poi="f", plot=None):
     out["high"] = interval.UpperLimit(w.var(poi))
 
     if plot:
-        canvas = r.TCanvas(plot)
+        canvas = r.TCanvas("pl")
         canvas.SetTickx()
         canvas.SetTicky()
         plPlot = r.RooStats.LikelihoodIntervalPlot(interval)
@@ -26,32 +26,48 @@ def plInterval(w, modelConfig, dataset, cl=0.95, poi="f", plot=None):
     utils.rootkill(interval)
     return out
 
-def cls(w, modelConfig, dataset, method, nToys):
+def cls(w, modelConfig, dataset, method, nToys, plot=False):
     def indexFraction(item, l):
         totalList = sorted(l+[item])
         return totalList.index(item)/(0.0+len(totalList))
 
-    def pValue(w, nToys):
+    def histToList(name, title, nbins, l):
+        hist = r.TH1D(name, title, nbins, min(l), max(l))
+        for item in l: hist.Fill(item)
+        return hist
+
+    def pValue(w, nToys, plot_name=None):
         results = rooFitResults(w.pdf("model"), dataset)
         w.saveSnapshot("snap", w.allVars())
         maxData = -results.minNll()
         maxs = []
+        graph = r.TGraph()
         for i,dset in enumerate(pseudoData(w, nToys)):
             w.loadSnapshot("snap")
             results = rooFitResults(w.pdf("model"), dset)
             maxs.append(-results.minNll())
+            graph.SetPoint(i, i, indexFraction(maxData, maxs))
             utils.rootkill(results)
+        if plot:
+            c = r.TCanvas(plot_name)
+            graph.Draw("a*")
+            c.Write()
+            hist = histToList("%s_hist" % plot_name, "", 50, maxs)
+            hist_actual = histToList("%s_hist_actual" % plot_name, "", 50, [0, maxData])
+            hist.Write()
+            hist_actual.Write()
+        utils.rootkill(graph)
         return indexFraction(maxData, maxs)
 
     out = {}
 
     if method == "Toys":
+        w.var("f").setVal(0.0)
+        w.var("f").setConstant()
+        out["CLb"] = 1.0 - pValue(w, nToys, "CLb")
         w.var("f").setVal(1.0)
         w.var("f").setConstant()
-        out["CLb"] = 1.0 - pValue(w, nToys)
-        w.var("f").setVal(1.0)
-        w.var("f").setConstant()
-        out["CLs+b"] = pValue(w, nToys)
+        out["CLs+b"] = pValue(w, nToys, "CLs+b")
 
     out["CLs"] = out["CLs+b"]/out["CLb"] if out["CLb"] else 9.9
     return out
@@ -82,16 +98,16 @@ def toys(w, modelConfig, dataset, nToys, cl=0.95):
         w.loadSnapshot("snap")
         yield w, dataset
 
-def capture(w, modelConfig, dataset, cl, method, signalPoint):
+def capture(w, modelConfig, dataset, cl, method, globals):
     out = {}
     if method == "pl":
-        pl_plot_name = "pl_%(m0)d_%(m1/2)d" % signalPoint
-        out["limit"] = plInterval(w, modelConfig, dataset, cl, plot=pl_plot_name)
+        pl_plot_name = "pl_%(m0)d_%(m1/2)d" % globals
+        out["limit"] = plInterval(w, modelConfig, dataset, cl)
         for syst in utils.getAllSystematics():
             try: out["%s" % syst] = w.var("nu%s" % syst).getVal()
             except ReferenceError: out["%s" % syst] = -1
     elif method == "clsviatoys":
-        out["limit"] = cls(w, modelConfig, dataset, "Toys", 300)
+        out["limit"] = cls(w, modelConfig, dataset, "Toys", 1000)
     return out
 
 
