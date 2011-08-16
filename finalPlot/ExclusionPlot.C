@@ -295,7 +295,7 @@ void CommandMSUGRA(TString plotName_,
 
 
   myleg->SetHeader("95% C.L. Limits:");
-  myleg->AddEntry(sFirst,"Observed Limit (NLO), PL","L");
+  //myleg->AddEntry(sFirst,"Observed Limit (NLO), PL","L");
   myleg->AddEntry(sThird,"Observed Limit (NLO), CL_{s}","L");
 
   // myleg->AddEntry(sQCDZero,"#alpha_{T} shape analysis PL QCD(0), EWK flat (LO), 769pb^{-1} (Expected)","L");
@@ -313,7 +313,7 @@ void CommandMSUGRA(TString plotName_,
   sSecond_low->SetFillStyle(1001);
   sSecond_low->SetFillColor(10);
 
-  sFirst->Draw("same");
+  //sFirst->Draw("same");
 
   // UNCOMMENT!!!!
   sSecond->Draw("same");
