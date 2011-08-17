@@ -12,8 +12,8 @@ from multiprocessing import Pool, TimeoutError
 import json
 import time, os, copy
 from limit_utils import toys, capture, quantiles
-
 import pprint
+import copy
 
 def chunks(l, n):
     """ Yield successive n-sized chunks from l.
@@ -24,30 +24,64 @@ def chunks(l, n):
 def setupLimit(channel):
     def makeLegend():
         return r.TLegend(0.7, 0.9, 0.9, 0.6)
-    def plot(NObserved, results):
-        c = r.TCanvas("test")
+    def plot(NObserved, results, NControl, R, bkgPredict):
         r.gROOT.SetStyle("Plain")
+        c = r.TCanvas("test")
+        c.SetGrid()
         nbins = len(NObserved)
         obs = r.TH1D("obs", "obs", nbins, 0.5, nbins+0.5)
         pred = r.TH1D("pred", "pred", nbins, 0.5, nbins+0.5)
+        pred2 = r.TH1D("pred2", "pred2", nbins, 0.5, nbins+0.5)
         for idx, b in enumerate(NObserved):
             obs.SetBinContent(idx+1, b)
+            if bkgPredict: pred2.SetBinContent(idx+1, R["nominal"][idx]*bkgPredict[0][idx])
             pred.SetBinContent(idx+1, results[idx].predicted())
-            pred.SetBinError(idx+1, math.sqrt(results[idx].predicted()))
+            perr = math.sqrt(results[idx].predicted())
+            serr = R["MCStats"][idx]*NControl[idx]
+            pred.SetBinError(idx+1,
+                             math.sqrt(perr**2 + serr**2))
+            obs.GetXaxis().SetBinLabel(idx+1, utils.formatBin(idx, False))
         pred.SetLineColor(r.kRed)
+        pred2.SetLineColor(r.kGreen);
+        obs.GetYaxis().SetRangeUser(0, 1.2*max(obs.GetMaximum(), pred.GetMaximum()))
+        obs.SetStats(r.kFALSE)
         obs.Draw("hist")
+        if bkgPredict: pred2.Draw("hist e same")
         pred.Draw("hist e same")
         leg = makeLegend()
         leg.AddEntry(pred, "Predicted", "L")
+        if bkgPredict: leg.AddEntry(pred2, "Predicted (QCD Fit)", "L")
         leg.AddEntry(obs, "Observed", "L")
         leg.Draw()
         c.SaveAs("limit/%s_pred_obs.pdf" % channel.name)
+    def plotA(path, *args, **kwargs):
+        c = r.TCanvas("test")
+        c.SetGrid()
+        r.gROOT.SetStyle("Plain")
+        nbins = len(args[0])
+        hists = [r.TH1D("h%d" % idx, "h%d" %idx, nbins, 0.5, nbins+0.5) for idx in range(len(args))]
+        for idx in range(nbins):
+            for hidx, h in enumerate(hists):
+                h.SetBinContent(idx+1, args[hidx][idx])
+                h.SetBinError(idx+1, math.sqrt(args[hidx][idx]))
+        cols = kwargs.get("cols", [r.kBlack, r.kRed])
+        legs = kwargs.get("legend", [])
+        legend = makeLegend() if len(legs) > 0 else None
+        for hidx, h in enumerate(hists):
+            h.SetLineColor(cols[hidx])
+            h.GetYaxis().SetRangeUser(0, 1.2*max([h.GetMaximum() for h in hists]))
+            if hidx == 0: h.Draw("hist e")
+            else: h.Draw("hist e same")
+            if hidx < len(legs): legend.AddEntry(h, legs[hidx], "L")
+        if legend: legend.Draw()
+        c.SaveAs(path)
 
+    ctrl_channel = bkgPredict = None
     # Get the background prediction per bin
-    if channel is cfg.Electron:
-        ctrl_channel = cfg.Muon
-    else:
-        ctrl_channel = None
+    if channel.bkgPrediction == "OtherChannel":
+        ctrl_channel = channel.ctrlChannel
+    elif channel.bkgPrediction == "QCDFit":
+        bkgPredict = (channel.ewkN, channel.ewkErr, {})
     data = utils.getZeroData(channel, ctrl_channel)
     mc = utils.getZeroMC(channel, ctrl_channel)
 
@@ -57,27 +91,38 @@ def setupLimit(channel):
     systs = utils.getSystematicsBkg(channel, ctrl_channel)
 
     R = {"nominal": [b.R() for b in data]}
+
     for name, scaled in systs:
         R[name] = utils.getSystematicShiftsR(mc, scaled[0], scaled[1])
+    R["MCStats"] = utils.mcStatsSystematicBkg(channel.bkgSamples, channel, ctrl_channel)
     NObserved = [b.observed() for b in data]
     NControl = [b.control() for b in data]
+    NControlMC = [b.mcControl() for b in mc]
     print "Extracting signal data..."
     susyEff = utils.getZeroMCSignal(channel)
+    controlRegionEff = utils.getZeroMCSignalControlRegion(channel)
     effSysts = utils.getSystematicsSignalEff(channel)
 
     for (m0, m12), p in susyEff.iteritems():
         p["effShift"] = {}
+        p["control_efficiencies"] = controlRegionEff[(m0, m12)]["efficiencies"]
         for name,scaled in effSysts:
             shift = utils.getSystematicShiftsEff(p, scaled[0], scaled[1])
             p["effShift"][name] = shift
+        if "pdfunc" in channel.includeSignalSysts:
+            p["effShift"]["pdfunc"] = [0.1*eff for eff in p["efficiencies"]]
 
-    plot(NObserved, results)
+    plot(NObserved, results, NControl, R, bkgPredict)
+    plotA("limit/R_%s.pdf" % channel.name, R["nominal"], legend = ["R"])
     return {
         "name" : ch.name,
         "NObserved" : NObserved,
         "NControl" : NControl,
+        "NControlMC" : NControlMC,
+        "bkgPredict" : bkgPredict,
         "R" : R,
         "lumi": ch.lumi,
+        "triggerEfficiency":ch.triggerEfficiency,
         "lumiError": cfg.lumiError,
         "signal" : susyEff,
         }
@@ -86,7 +131,7 @@ def mergeTasks(tasks, maxPoints):
     out = {"signal":[], "other":{}}
     for (m0, m12), p in tasks[0]["signal"].iteritems():
         addPoint = True
-        if m0 < 600 and m12 < 150: continue
+        if m0 < 600 and m12 < 200: continue
         for t in tasks[1:]:
             if not (m0, m12) in t["signal"]:
                 addPoint=False
@@ -104,24 +149,35 @@ def mergeTasks(tasks, maxPoints):
 
 
 def workOnPoint(actions, globs, channels, rootfname):
+    pprint.pprint(channels)
     r.gROOT.SetBatch(True)
     r.RooRandom.randomGenerator().SetSeed(1)
-    #r.RooMsgService.instance().addStream(r.RooFit.DEBUG, r.RooFit.Topic(r.RooFit.Tracing), r.RooFit.ClassName("RooGaussian"))
+    # r.RooMsgService.instance().addStream(r.RooFit.DEBUG, r.RooFit.Topic(r.RooFit.Tracing), r.RooFit.ClassName("RooGaussian"))
+    #r.RooMsgService.instance().addStream(r.RooFit.DEBUG, r.RooFit.Topic(r.RooFit.Tracing))
+    #r.RooMsgService.instance().addStream(r.RooFit.DEBUG, r.RooFit.Topic(r.RooFit.Minimization))
     # rfile = r.TFile(rootfname % os.getpid(), "UPDATE")
     # rfile.mkdir("susy_%d_%d" % (globs["m0"], globs["m1/2"])).cd()
     fitChannels = []
-    for c in channels:
+    print "============= Working on point ============"
+    print "m0 = %d, m1/2 = %d" % (globs["m0"], globs["m1/2"])
+    for chan in channels:
+        c = copy.deepcopy(chan)
         name = c["name"]
         R = c["R"]
-        lumi = c["lumi"]
-        NObserved = c["NObserved"]
-        NControl = c["NControl"]
+        MCStats = None
+        if "MCStats" in R:
+            MCStats = R["MCStats"]
+            del R["MCStats"]
+
         signalEff = {"nominal":c["efficiencies"]}
         for k, v in c["effShift"].iteritems():
             signalEff[k] = v
-        fitChannels += [likelihood.Channel(name, lumi, NObserved, NControl,
-                                           R, signalEff)]
-    (w, modelConfig, dataset) = likelihood.OneLeptonSimple(globs, *fitChannels)
+        controlEff = c["control_efficiencies"]
+        fitChannels += [likelihood.Channel(c["name"], c["lumi"], c["triggerEfficiency"], c["NObserved"], c["NControl"], c["NControlMC"],
+                                           c["R"], signalEff, controlEff, MCStats,
+                                           c["bkgPredict"])]
+    (w, modelConfig, dataset) = likelihood.OneLeptonSimple(globs, cfg.includeSignalContamination,
+                                                           *fitChannels)
     w.Print()
     #print signalPoint
 
@@ -131,13 +187,13 @@ def workOnPoint(actions, globs, channels, rootfname):
     for act in actions:
         if act["name"] == "limit":
             out["results"][act["method"]] = capture(w, modelConfig, dataset, act["cl"], act["method"],
-                                         globs)
+                                                    globs)
         elif act["name"] == "toys":
             out["results"]["toys"] = []
             for expt_w, expt_dset in toys(w, modelConfig, dataset, act["n"], act["cl"]):
-                out["results"]["toys"].append(capture(expt_w, modelConfig, expt_dset, act["cl"]))
-            limits = [x["limit"][1] for x in signalPoint["toys"]]
-            out["results"]["quantiles"] = quantiles(limits, cfg.plusMinus)
+                out["results"]["toys"].append(capture(expt_w, modelConfig, expt_dset, act["cl"], "pl", globs))
+            limits = [x["limit"]["high"] for x in out["results"]["toys"]]
+            out["results"]["quantiles"] = quantiles(limits, cfg.plusMinus)[0]
 
         else: raise ValueError("Invalid action: %s" % act["name"])
     # rfile.Write()
@@ -180,7 +236,7 @@ def options():
     parser.add_option("-s", "--schedule", action = "store_true", default = False)
     parser.add_option("-p", "--points-per-job", action = "store", type="int", default = 20)
     parser.add_option("-r", "--run", action = "store_true", default = False)
-    parser.add_option("-f", "--fork", action = "store",  type = "int", default = 8)
+    parser.add_option("-f", "--fork", action = "store",  type = "int", default = 1)
     parser.add_option("-b", "--batch-run", action="store", type="string", default = None)
     parser.add_option("-m", "--merge", action="store", type = "string", default = None)
     parser.add_option("-a", "--action", action="store", type = "string", default = "limit")
@@ -239,10 +295,11 @@ if __name__ == "__main__":
             jobdict["signal"] = pts
             json.dump(jobdict, open("%s/%d/job.json" % (job_dir, idx+1), "w"), indent=0)
             open("%s/run.sh" % job_dir,"w").write("""#!/bin/sh
-            source %(cwd)s/envIC2.sh
+            source %(source)s
             cd %(cwd)s
             ./runLimit.py --batch-run %(job_dir)s/${SGE_TASK_ID} --fork %(fork)d --timeout %(timeout)d
-            """ % {"cwd": os.getcwd(), "job_dir" : job_dir, "fork" : opts.fork, "timeout" : opts.timeout})
+            """ % {"cwd": os.getcwd(), "job_dir" : job_dir, "fork" : opts.fork, "timeout" : opts.timeout,
+                   "source": "%s/root_svn.sh" % os.getcwd()})
         subJobs(job_dir, idx)
         print "Scheduled %s jobs: %s" % (idx, job_dir)
     elif opts.run or opts.batch_run:
@@ -270,11 +327,14 @@ if __name__ == "__main__":
                 if nonexist == 10: break
             else:
                 files += [path]
+                nonexist=0
             idx += 1
         points = []
         for idx, fname in enumerate(files):
             if idx % 10 == 0: print "Scanning file %d/%d" % (idx, len(files))
             pointsToAdd = utils.loadFile(fname)["results"]
+            for p in pointsToAdd:
+                if "toys" in p["results"]: del p["results"]["toys"]
             points.extend(pointsToAdd)
             if len(pointsToAdd) == 0:
                 print "[WARNING] Empty output file: %d" % idx

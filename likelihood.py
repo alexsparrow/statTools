@@ -4,17 +4,22 @@ import os
 import math
 
 class Channel(object):
-    def __init__(self, name, lumi, NObserved, NControl, R, signalEff):
+    def __init__(self, name, lumi, triggerEfficiency, NObserved, NControl, NControlMC, R, signalEff,
+                 controlEff, RStat, bkgPredict):
         self.name = name
         self.lumi = lumi
+        self.triggerEfficiency = triggerEfficiency
         self.NObserved = NObserved
         self.NControl = NControl
+        self.NControlMC = NControlMC
         self.R = R["nominal"]
         self.RSyst = dict([(k,v) for k, v in R.iteritems() if k != "nominal"])
+        self.RStat = RStat
         self.signalEff = signalEff["nominal"]
+        self.controlEff = controlEff
         self.signalEffSyst = dict([(k, v) for k, v in signalEff.iteritems() if k != "nominal"])
         self.NControlError = [math.sqrt(nc) for nc in self.NControl]
-
+        self.bkgPredict = bkgPredict
 
     def signalSystematics(self):
         return set(self.signalEffSyst.keys())
@@ -25,7 +30,8 @@ class Channel(object):
     def enumBins(self):
         return enumerate(self.signalEff)
 
-def OneLeptonSimple(globals, *channels):
+NuisancePDF =  r.RooGaussian
+def OneLeptonSimple(globals, signalContamination, *channels): # Not so simple anymore!
     w = r. RooWorkspace("wspace")
     model = None
     obs = [ ]
@@ -46,8 +52,8 @@ def OneLeptonSimple(globals, *channels):
         wimport(r.RooRealVar("nuLumiMean", "nuLumiMean", 1.0))
         wimport(r.RooRealVar("nuLumi", "nuLumi", 1.0, 0.0, 2.0))
         wimport(r.RooRealVar("nuLumiDelta", "nuLumiDelta", 2*globals["lumiError"]))
-        wimport(r.RooGaussian("nuLumiGauss", "nuLumiGauss", w.var("nuLumiMean"),
-                              w.var("nuLumi"), w.var("nuLumiDelta")))
+        wimport(r.RooGaussian("nuLumiGauss", "nuLumiGauss", w.var("nuLumi"),
+                              w.var("nuLumiMean"), w.var("nuLumiDelta")))
         obs.append("nuLumiMean")
         terms.append("nuLumiGauss")
         nuis.append("nuLumi")
@@ -59,12 +65,12 @@ def OneLeptonSimple(globals, *channels):
         systs = set.union(*[ch.allSystematics() for ch in channels])
         for syst in systs:
             name = "nu%s" % syst
-            wimport(r.RooRealVar(name, name, 0, -5, 5))
+            wimport(r.RooRealVar(name, name, 0, -3, 3))
             wimport(r.RooRealVar(name+"Mean", name+"Mean", 0))
             wimport(r.RooRealVar(name+"Sigma", name+"Sigma", 1.0))
-            wimport(r.RooGaussian(name+"Gauss", name+"Gauss",
-                                  w.var(name), w.var(name+"Mean"),
-                                  w.var(name+"Sigma")))
+            wimport(NuisancePDF(name+"Gauss", name+"Gauss",
+                                w.var(name), w.var(name+"Mean"),
+                                w.var(name+"Sigma")))
             nuis.append(name)
             terms.append(name+"Gauss")
             obs.append(name+"Mean")
@@ -74,16 +80,25 @@ def OneLeptonSimple(globals, *channels):
             for idx, eff in ch.enumBins():
                 prefix = "%sBkg%d" % (ch.name, idx)
                 wimport(r.RooRealVar("%s_RNom" % prefix, "%s_RNom" % prefix, ch.R[idx]))
-                wimport(r.RooRealVar("%s_NControl" % prefix, "%s_NControl" % prefix, ch.NControl[idx]))
-                prefix = "nu%sBkg%dNControl" % (ch.name, idx)
-                wimport(r.RooRealVar(prefix, prefix, 1, 0, 1))
-                wimport(r.RooRealVar("%sMean" % prefix, "%sMean" % prefix, 1))
+                #                wimport(r.RooRealVar("%s_NControlNom" % prefix, "%s_NControlNom" % prefix, ch.NControl[idx]))
+                prefix = "nu%sBkg%d_NControl" % (ch.name, idx)
+                wimport(r.RooRealVar(prefix, prefix, ch.NControl[idx], 0, 10000))
+                wimport(r.RooRealVar("%sMean" % prefix, "%sMean" % prefix, ch.NControl[idx]))
                 wimport(r.RooRealVar("%sSigma" % prefix, "%sSigma" % prefix, ch.NControlError[idx]))
                 wimport(r.RooGaussian("%sGauss" % prefix, "%sGauss" % prefix,
                                       w.var(prefix), w.var("%sMean" % prefix), w.var("%sSigma" % prefix)))
                 terms.append("%sGauss" % prefix)
                 obs.append("%sMean" % prefix)
                 nuis.append(prefix)
+
+                name = "nu%sBkg%d_R" % (ch.name, idx)
+                wimport(r.RooRealVar(name, name, 1, 0, 2))
+                wimport(r.RooRealVar("%sMean" % name, "%sMean" % name, 1.0))
+                wimport(r.RooRealVar("%sSigma" % name, "%sSigma" % name, ch.RStat[idx]/ch.R[idx]))
+                wimport(r.RooGaussian("%sGauss" % name, "%sGauss" % name, w.var(name), w.var("%sMean" % name), w.var("%sSigma" % name)))
+                terms.append("%sGauss" % name)
+                obs.append("%sMean" % name)
+                nuis.append(name)
                 R_systs = []
                 for syst in ch.backgroundSystematics():
                     name = "%sBkg%d_R%s" % (ch.name, idx, syst)
@@ -95,20 +110,88 @@ def OneLeptonSimple(globals, *channels):
                                                                w.var("%sBkg%d_RNom" % (ch.name, idx)))))
                     R_systs.append("%sScale" % name)
 
-                R_terms = [w.var("%sBkg%d_RNom" % (ch.name, idx)), w.var("%sBkg%d_NControl" % (ch.name, idx))]
+                if ch.bkgPredict is not None:
+                    print "QCD Prediction enabled"
+                    assert all([x!=0 for x in ch.bkgPredict[0]])
+                    fEWK = [x/y for (x, y) in zip(ch.bkgPredict[0], ch.NControl)]
+                    fEWKErr = []
+                    for NEwk, NEwkErr, NControl in zip(ch.bkgPredict[0], ch.bkgPredict[1], ch.NControl):
+                        a = NEwkErr/NControl
+                        b = (NEwk*math.sqrt(NControl))/NControl**2
+                        fEWKErr += [a**2 + b**2]
+                    print "fEWK:", fEWK, fEWKErr
+
+                    prefix = "nu%sBkg%d_NControlfEWK" % (ch.name, idx)
+                    wimport(r.RooRealVar(prefix, prefix, fEWK[idx], 0, 1))
+                    wimport(r.RooRealVar("%sMean" % prefix, "%sMean" % prefix, fEWK[idx]))
+                    wimport(r.RooRealVar("%sSigma" % prefix, "%sSigma" % prefix, fEWKErr[idx]))
+                    wimport(r.RooGaussian("%sGauss" % prefix, "%sGauss" % prefix, w.var(prefix),
+                                          w.var("%sMean" % prefix), w.var("%sSigma" % prefix)))
+                    terms.append("%sGauss" % prefix)
+                    obs.append("%sMean" % prefix)
+                    nuis.append(prefix)
+
+                    control_terms = [w.var("nu%sBkg%d_NControl" % (ch.name, idx)),
+                                     w.var("nu%sBkg%d_NControlfEWK" % (ch.name, idx))]
+                    for syst in ch.bkgPredict[2].keys():
+                        assert syst in ch.backgroundSystematics()
+                        a = ch.bkgPredict[2][syst][idx]/NControl
+                        b = (NEwk*math.sqrt(NControl))/NControl**2
+                        syst_err = a**2 + b**2
+                        print "fEWK_%s: %.2f" % (syst, syst_err)
+                        name = "%sBkg%d_NControlfEWKErr%s" % (ch.name, idx, syst)
+                        wimport(r.RooRealVar("%sShift" %  name, "%sShift" % name, syst_err))
+                        wimport(r.RooFormulaVar("%sScale" % name, "((@0) + (@1)*(@2))/(@3)",
+                                                   r.RooArgList(w.var("nu%sBkg%d_NControlfEWKMean" % (ch.name, idx)),
+                                                               w.var("%sShift" % name),
+                                                               w.var("nu%s" % syst),
+                                                               w.var("nu%sBkg%d_NControlfEWKMean" % (ch.name, idx)))))
+                        control_terms.append(w.function("%sScale"% name))
+
+
+                    wimport(r.RooFormulaVar("%sBkg%d_NControl" % (ch.name, idx), "*".join(["(@%d)" % i for i in range(len(control_terms))]),
+                                            r.RooArgList(*control_terms)))
+
+                    NControl_term = w.function("%sBkg%d_NControl" % (ch.name, idx))
+                else:
+                    NControl_term = w.var("nu%sBkg%d_NControl" % (ch.name, idx))
+
+                name = "%sBkg%d_NControl" % (ch.name, idx)
+                wimport(r.RooRealVar(name+"_MC", name+"_MC", ch.NControlMC[idx]))
+                wimport(r.RooRealVar(name+"_ControlEff", name+"_ControlEff", ch.controlEff[idx]))
+                wimport(r.RooFormulaVar(name+"_NSUSY", "(@0)*(@1)*(@2)*(@3)", r.RooArgList(w.var("f"), w.var("xs"), w.var(name+"_ControlEff"), w.var("%sLumi" % ch.name))))
+                fval = w.var("f").getVal()
+                w.var("f").setVal(1.0)
+                wimport(r.RooRealVar(name+"_NSUSYNom", name+"_NSUSYNom", w.function(name+"_NSUSY").getVal()))
+                w.var("f").setVal(fval)
+                R_terms = [w.var("nu%sBkg%d_R" % (ch.name, idx)), w.var("%sBkg%d_RNom" % (ch.name, idx)), NControl_term]
+                if signalContamination and w.var(name+"_ControlEff").getVal() >= 0.0001:
+                    wimport(r.RooFormulaVar(name+"_fSM_Mean", "(@0)/((@0) + (@1))", r.RooArgList(w.var(name+"_MC"), w.var(name+"_NSUSYNom"))))
+                    wimport(r.RooFormulaVar(name+"_fSM_Sigma", "sqrt( (@0)*(1/((@0)+(@1)) - (@0)/(((@0)+(@1))^2))^2 + (@1)*(@0)*1/(((@0)+(@1))^2))",
+                                            r.RooArgList(w.var(name+"_MC"), w.var(name+"_NSUSYNom"))))
+                    wimport(r.RooRealVar(name+"_fSM", name+"_fSM", w.function(name+"_fSM_Mean").getVal(), 0, 1))
+                    wimport(r.RooGaussian(name+"_fSM_Gauss", name+"_fSM_Gauss", w.var(name+"_fSM"), w.function(name+"_fSM_Mean"), w.function(name+"_fSM_Sigma")))
+                    terms.append(name+"_fSM_Gauss")
+                    nuis.append(name+"_fSM")
+                    # obs.append(name+"_NSUSYNom")
+                    #obs.append(name+"_MC")
+#                    obs.append(name+"_fSM_Mean")
+                    R_terms.append(w.var(name+"_fSM"))
                 R_terms.extend([w.function(syst) for syst in R_systs])
                 formula_str = "*".join(["(@%d)" % x for x in range(len(R_terms))])
-                wimport(r.RooFormulaVar("%sBkg%d_N" % (ch.name, idx), formula_str, r.RooArgList(*R_terms)))
+                al = r.RooArgList()
+                for t in R_terms: al.add(t)
+                wimport(r.RooFormulaVar("%sBkg%d_N" % (ch.name, idx), formula_str, al))
 
     def signalBins():
         for ch in channels:
             for idx, eff in ch.enumBins():
-                wimport(r.RooRealVar("%sSignal%d_EffNom" % (ch.name, idx), "%sSignal%d_Eff" % (ch.name, idx), ch.signalEff[idx]))
+                wimport(r.RooRealVar("%sSignal%d_EffNom" % (ch.name, idx), "%sSignal%d_Eff" % (ch.name, idx), ch.signalEff[idx]*ch.triggerEfficiency))
                 signalEff_systs = []
                 for syst in ch.signalSystematics():
                     name = "%sSignal%d_Eff%s" % (ch.name, idx, syst)
                     wimport(r.RooRealVar(name+"Shift", name+"Shift",
-                                         ch.signalEffSyst[syst][idx]))
+                                         ch.signalEffSyst[syst][idx]*ch.triggerEfficiency))
                     wimport(r.RooFormulaVar(name+"Scale", "((@0) + (@1)*(@2))/(@3)",
                                             r.RooArgList(w.var("%sSignal%d_EffNom" % (ch.name, idx)), w.var("nu%s" % syst),
                                                          w.var(name+"Shift"),
@@ -135,11 +218,14 @@ def OneLeptonSimple(globals, *channels):
     def model():
         w.factory("PROD:model(%s)" % ",".join(terms))
 
-    signalTerms()
     nuisanceParams()
+    signalTerms()
     backgroundPredictions()
     signalBins()
     model()
+    print "obs", obs
+    print "nuis", nuis
+    print "terms", terms
     w.defineSet("obs", ",".join(obs))
     w.defineSet("nuis", ",".join(nuis))
     modelConfig = r.RooStats.ModelConfig("modelConfig", w)

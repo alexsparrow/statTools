@@ -8,20 +8,21 @@ import ROOT as r
 import math
 import os.path
 from LatexTable import Table
-from config import path, files, bin_fmt, bins, bin_name, systInfo
+from config import path, bin_fmt, bins, systInfo, Muon, Electron
 import utils
 import math
 
 if __name__ == "__main__":
     r.gROOT.LoadMacro("predict.C+")
-
+    channel = Electron
+    ctrl_channel = None
     # Load MC pseudo-data in bins
-    data = utils.getZeroMC()
+    data = utils.getZeroMC(channel, ctrl_channel)
     # This also calculates statistical uncertainties
     results = utils.makePredictions(data)
 
     # Get the scaled/smeared systematic variations
-    systs = utils.getSystematicsBkg()
+    systs = utils.getLiterallyAllSystematicsBkg(channel, ctrl_channel)
 
     # Loop through systematics and calculate systematic uncertainty
     for name, scaled in systs:

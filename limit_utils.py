@@ -1,6 +1,14 @@
 import ROOT as r
 import utils
 import math, array
+import sys
+import config as cfg
+from runInverter import RunInverter
+
+def wimport(w, item) :
+    r.RooMsgService.instance().setGlobalKillBelow(r.RooFit.WARNING) #suppress info messages
+    getattr(w, "import")(item)
+    r.RooMsgService.instance().setGlobalKillBelow(r.RooFit.DEBUG) #re-enable all messages
 
 def rooFitResults(pdf, data, options = (r.RooFit.Verbose(False), r.RooFit.PrintLevel(-1), r.RooFit.Save(True))) :
     return pdf.fitTo(data, *options)
@@ -26,7 +34,68 @@ def plInterval(w, modelConfig, dataset, cl=0.95, poi="f", plot=False):
     utils.rootkill(interval)
     return out
 
-def cls(w, modelConfig, dataset, method, nToys, plot=False):
+def cls(w, modelConfig, dataset, cl, nToys, nWorkers=1, plSeed=False):
+    nPoints = 1
+    poiMin = 1.0
+    poiMax = 1.0
+    testStatType = 3
+    plusMinus = cfg.plusMinus
+
+    if plSeed:
+        plUpperLimit = plInterval(w, modelConfig, dataset, cl = cl)["high"]
+        nPoints= 3
+        poiMin = plUpperLimit*0.5
+        poiMax = plUpperLimit*1.5
+    #r.RooMsgService.instance().addStream(r.RooFit.DEBUG, r.RooFit.Topic(r.RooFit.Tracing))
+    wimport(w, dataset)
+    wimport(w, modelConfig)
+    result = RunInverter(w = w, modelSBName = "modelConfig", dataName = "dataName", CL = cl,
+                         nworkers = nWorkers, ntoys = nToys, type = 0, testStatType = testStatType,
+                         npoints = nPoints, poimin = poiMin, poimax = poiMax, debug=False)
+
+
+    out = {}
+    for iPoint in range(nPoints) :
+        s = "" if not iPoint else "_%d"%iPoint
+        out["CLb%s"     %s] = result.CLb(iPoint)
+        out["CLs+b%s"   %s] = result.CLsplusb(iPoint)
+        out["CLs%s"     %s] = result.CLs(iPoint)
+        out["CLsError%s"%s] = result.CLsError(iPoint)
+        out["PoiValue%s"%s] = result.GetXValue(iPoint)
+
+    if nPoints==1 and poiMin==poiMax :
+        args = {}
+        for item in ["testStatType", "plusMinus"] :
+            args[item] = eval(item)
+        args["result"] = result
+        args["poiPoint"] = poiMin
+        args["out"] = out
+        clsOnePoint(args)
+    else :
+        out["UpperLimit"] = result.UpperLimit()
+        out["UpperLimitError"] = result.UpperLimitEstimatedError()
+        out["LowerLimit"] = result.LowerLimit()
+        out["LowerLimitError"] = result.LowerLimitEstimatedError()
+    return out
+
+def clsOnePoint(args) :
+    result = args["result"]
+    iPoint = result.FindIndex(args["poiPoint"])
+    if iPoint<0 :
+        print "WARNING: No index for POI value 1.0.  Will use 0."
+        iPoint = 0
+
+    values = result.GetExpectedPValueDist(iPoint).GetSamplingDistribution()
+    q,hist = quantiles(values, args["plusMinus"], histoName = "expected_CLs_distribution",
+                       histoTitle = "expected CLs distribution;CL_{s};toys / bin",
+                       histoBins = (205, -1.0, 1.05), cutZero = False)
+
+    for key,value in q.iteritems() :
+        assert not (key in args["out"]),"%s %s"%(key, str(args["out"]))
+        args["out"][key] = value
+    return
+
+def clsOld(w, modelConfig, dataset, method, nToys, plot=False):
     def indexFraction(item, l):
         totalList = sorted(l+[item])
         return totalList.index(item)/(0.0+len(totalList))
@@ -95,6 +164,7 @@ def toys(w, modelConfig, dataset, nToys, cl=0.95):
     w.saveSnapshot("snap", w.allVars())
 
     for i, dataset in enumerate(pseudo):
+        sys.stderr.write("@@ TOY @@ %d\n" % i)
         w.loadSnapshot("snap")
         yield w, dataset
 
@@ -103,19 +173,24 @@ def capture(w, modelConfig, dataset, cl, method, globals):
     if method == "pl":
         pl_plot_name = "pl_%(m0)d_%(m1/2)d" % globals
         out["limit"] = plInterval(w, modelConfig, dataset, cl)
+        print out["limit"]
         for syst in utils.getAllSystematics():
             try: out["%s" % syst] = w.var("nu%s" % syst).getVal()
             except ReferenceError: out["%s" % syst] = -1
     elif method == "clsviatoys":
-        out["limit"] = cls(w, modelConfig, dataset, "Toys", 1000)
+        out["limit"] = cls(w, modelConfig, dataset,  cl, cfg.clsToys)
+
     return out
 
 
-def quantiles(limits, plusMinus):
-    def histoFromList(l, name, title, bins) :
+def quantiles(values = [], plusMinus = {}, histoName = "", histoTitle = "", histoBins = [], cutZero = None) :
+    def histoFromList(l, name, title, bins, cutZero = False) :
         h = r.TH1D(name, title, *bins)
-        for item in l : h.Fill(item)
+        for item in l :
+            if cutZero and (not item) : continue
+            h.Fill(item)
         return h
+
     def probList(plusMinus) :
         def lo(nSigma) : return ( 1.0-r.TMath.Erf(nSigma/math.sqrt(2.0)) )/2.0
         def hi(nSigma) : return 1.0-lo(nSigma)
@@ -125,17 +200,46 @@ def quantiles(limits, plusMinus):
             out.append( (lo(n), "MedianMinus%s"%key) )
             out.append( (hi(n), "MedianPlus%s"%key)  )
         return sorted(out)
-    fst = lambda x : x[0]
-    snd = lambda x : x[1]
+
+    def oneElement(i, l) :
+        return map(lambda x:x[i], l)
+
     pl = probList(plusMinus)
-    probs = map(fst, pl)
-    names = map(snd, pl)
-    probSum = array.array('d', probs)
-    q = array.array('d', [0.0]*len(probSum))
+    probs = oneElement(0, pl)
+    names = oneElement(1, pl)
+
     probSum = array.array('d', probs)
     q = array.array('d', [0.0]*len(probSum))
 
-    h = histoFromList(limits, name = "upperLimit", title = ";upper limit on XS factor;toys / bin",
-                      bins = (50, 1, -1)) #enable auto-range
+    h = histoFromList(values, name = histoName, title = histoTitle, bins = histoBins, cutZero = cutZero)
     h.GetQuantiles(len(probSum), q, probSum)
-    return dict(zip(names, q))
+    return dict(zip(names, q)),h
+
+# def quantiles(limits, plusMinus):
+#     def histoFromList(l, name, title, bins) :
+#         h = r.TH1D(name, title, *bins)
+#         for item in l : h.Fill(item)
+#         return h
+#     def probList(plusMinus) :
+#         def lo(nSigma) : return ( 1.0-r.TMath.Erf(nSigma/math.sqrt(2.0)) )/2.0
+#         def hi(nSigma) : return 1.0-lo(nSigma)
+#         out = []
+#         out.append( (0.5, "Median") )
+#         for key,n in plusMinus.iteritems() :
+#             out.append( (lo(n), "MedianMinus%s"%key) )
+#             out.append( (hi(n), "MedianPlus%s"%key)  )
+#         return sorted(out)
+#     fst = lambda x : x[0]
+#     snd = lambda x : x[1]
+#     pl = probList(plusMinus)
+#     probs = map(fst, pl)
+#     names = map(snd, pl)
+#     probSum = array.array('d', probs)
+#     q = array.array('d', [0.0]*len(probSum))
+#     probSum = array.array('d', probs)
+#     q = array.array('d', [0.0]*len(probSum))
+
+#     h = histoFromList(limits, name = "upperLimit", title = ";upper limit on XS factor;toys / bin",
+#                       bins = (50, 1, -1)) #enable auto-range
+#     h.GetQuantiles(len(probSum), q, probSum)
+#     return (dict(zip(names, q)), h)

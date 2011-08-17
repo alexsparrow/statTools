@@ -1,13 +1,15 @@
 import ROOT as r
 import config as cfg
 import os.path
+import math
 
-def formatBin(idx):
+def formatBin(idx, latex=True):
     """ Return a human readable bin name """
     if idx < len(cfg.bins) -1:
         return "%d - %d" % (cfg.bins[idx], cfg.bins[idx+1])
     else:
-        return " $>$ %d" % cfg.bins[idx]
+        if latex: return " $>$ %d" % cfg.bins[idx]
+        else: return " > %d" % cfg.bins[idx]
 
 def buildHist(samples, files, histpath, scale_factors, mcLumi=None):
     """ Loop through sample list 'samples' and fetch histogram at 'histpath'
@@ -23,7 +25,6 @@ def buildHist(samples, files, histpath, scale_factors, mcLumi=None):
         h.Add(tmp)
     if not cfg.useRealData:
         if mcLumi is None: raise Exception("Please specify lumi for normalisation")
-        print "Scaling by %.2f" % (mcLumi/cfg.icfDefaultLumi)
         h.Scale(mcLumi/cfg.icfDefaultLumi)
     return h
 
@@ -109,7 +110,7 @@ def extractProxy(pred_channel, ctrl_channel, fset, data, mc, scale_factors={}):
     else:
         return extract2(pred_channel, ctrl_channel, fset, data, mc , scale_factors)
 
-def extractSignalEffs(channel, fset, sample, asdict = False):
+def extractSignalEffs(channel, fset, sample, asdict = False, label=""):
     """ Extract SUSY signal efficiencies per bin and output each mSUGRA point as a list
     'fset' : set of files to use
     'sample' : which sample e.g. tanbeta10
@@ -121,6 +122,7 @@ def extractSignalEffs(channel, fset, sample, asdict = False):
 
     tfiles = dict([(n, getFile(fname, fset, "zero"))
                    for (n, fname) in channel.files.iteritems()])
+    print tfiles[sample].GetEndpointUrl().GetUrl(),sample
     nocuts = hist(tfiles[sample], "Counter_BSMGrid_NoCuts_scale1/m0_m12_mChi")
     nocuts_noweight = hist(tfiles[sample], "Counter_BSMGrid_NoCuts_scale1/m0_m12_mChi_noweight")
 
@@ -139,25 +141,29 @@ def extractSignalEffs(channel, fset, sample, asdict = False):
     nloeffs = []
     for b in cfg.bins:
         bin_fmt = "Counter_BSMGrid_%s%d%s_scale1/%s"
-        bin_name = bin_fmt  % (cfg.binName, b, "", "m0_m12_mChi_noweight")
+        bin_name = bin_fmt  % (cfg.binName, b, label, "m0_m12_mChi_noweight")
         sigbin = hist(tfiles[sample], bin_name)
         sigbin.Divide(nocuts_noweight)
         sigbins.append(sigbin)
         nloeff = None
         for p in cfg.processes:
-            top = hist(tfiles[sample], bin_fmt % (cfg.binName, b, "", "m0_m12_%s" % p))
+            top = hist(tfiles[sample], bin_fmt % (cfg.binName, b, label, "m0_m12_%s" % p))
             top.Divide(hist(tfiles[sample], "Counter_BSMGrid_NoCuts_scale1/m0_m12_%s_noweight" % p))
             if nloeff is None: nloeff = top
             else: nloeff.Add(top)
+        nloeff.Divide(nloxs)
         nloeffs.append(nloeff)
     effs = []
     for xx in range(sigbins[0].GetNbinsX()+1):
         for yy in range(sigbins[0].GetNbinsY()+1):
             for zz in range(0, 10):
-                (x, y, z) = (int(sigbins[0].GetXaxis().GetBinUpEdge(xx)),
-                             int(sigbins[0].GetYaxis().GetBinUpEdge(yy)),
-                             int(sigbins[0].GetZaxis().GetBinUpEdge(zz)))
+                (x, y, z) = (int(sigbins[0].GetXaxis().GetBinLowEdge(xx)),
+                             int(sigbins[0].GetYaxis().GetBinLowEdge(yy)),
+                             int(sigbins[0].GetZaxis().GetBinLowEdge(zz)))
                 if xs.GetBinContent(xx, yy, zz) < cfg.minXSToConsider: continue
+                if nocuts_noweight.GetBinContent(xx, yy, zz) != 10000:
+#                    print "WARNING: Found hole in scan (%d, %d)" % (x,y)
+                    continue
                 point = {"loefficiencies": [],
                          "nloefficiencies": [],
                          "loxs" : xs.GetBinContent(xx, yy, zz),
@@ -170,8 +176,10 @@ def extractSignalEffs(channel, fset, sample, asdict = False):
                     point["loefficiencies"].append(eff)
                     point["nloefficiencies"].append(nloeffs[idx].GetBinContent(xx, yy))
 
-                if cfg.use_nloxs: point["efficiencies"] = point["loefficiencies"]
-                else: point["efficiencies"] = point["nloefficiencies"]
+                if cfg.use_nloxs: point["efficiencies"] = point["nloefficiencies"]
+                else: point["efficiencies"] = point["loefficiencies"]
+                if label == "" and all([eff < cfg.minEffToConsider for eff in point["efficiencies"]]):
+                    continue
                 effs.append(point)
     if asdict: effs = dict([((p["m0"], p["m1/2"]), p) for p in effs])
     return effs
@@ -187,13 +195,27 @@ def rootkill(thing) :
 def jecSystematicBkg(pred_channel, ctrl_channel):
     return (extractProxy(pred_channel, ctrl_channel, "metup",   pred_channel.bkgSamples, pred_channel.bkgSamples),
             extractProxy(pred_channel, ctrl_channel, "metdown", pred_channel.bkgSamples, pred_channel.bkgSamples))
+
+def jecFlatSystematicBkg(pred_channel, ctrl_channel):
+    return (extractProxy(pred_channel, ctrl_channel, "metup_flat",   pred_channel.bkgSamples, pred_channel.bkgSamples),
+            extractProxy(pred_channel, ctrl_channel, "metdown_flat", pred_channel.bkgSamples, pred_channel.bkgSamples))
+
 def metresSystematicBkg(pred_channel, ctrl_channel):
     one = extractProxy(pred_channel, ctrl_channel, "metres",    pred_channel.bkgSamples, pred_channel.bkgSamples)
     return (one, one)
+
+def metres11SystematicBkg(pred_channel, ctrl_channel):
+    one = extractProxy(pred_channel, ctrl_channel, "metres11",    pred_channel.bkgSamples, pred_channel.bkgSamples)
+    return (one, one)
+
+def metres12SystematicBkg(pred_channel, ctrl_channel):
+    one = extractProxy(pred_channel, ctrl_channel, "metres12",    pred_channel.bkgSamples, pred_channel.bkgSamples)
+    return (one, one)
+
 def polSystematicBkg(pred_channel, ctrl_channel):
     return (extractProxy(pred_channel, ctrl_channel, "polup",   pred_channel.bkgSamples, pred_channel.bkgSamples),
             extractProxy(pred_channel, ctrl_channel, "poldown", pred_channel.bkgSamples, pred_channel.bkgSamples))
-def lepSystematicBkg(pred_channel, ctrl_chhanel):
+def lepSystematicBkg(pred_channel, ctrl_channel):
     one = extractProxy(pred_channel, ctrl_channel, "muscale",      pred_channel.bkgSamples, pred_channel.bkgSamples)
     return (one, one)
 def WttSystematicBkg(pred_channel, ctrl_channel):
@@ -201,13 +223,39 @@ def WttSystematicBkg(pred_channel, ctrl_channel):
                     {"tt":1.5, "w":0.7}),
             extractProxy(pred_channel, ctrl_channel, "zero",    pred_channel.bkgSamples, pred_channel.bkgSamples,
                     {"tt":0.5, "w":1.3}))
+def mcStatsSystematicBkg(mc, pred_channel, ctrl_channel):
+    if ctrl_channel is None:
+        ctrl_channel = pred_channel
+    tfiles1 = dict([(n, getFile(fname, "zero", "zero"))
+                    for (n, fname) in pred_channel.files.iteritems()])
+    tfiles2 = dict([(n, getFile(fname, "zero", "zero"))
+                    for (n, fname) in ctrl_channel.files.iteritems()])
+    mc_signal = [buildHist(mc, tfiles1, cfg.bin_fmt % (cfg.binName, b, "", cfg.hname),
+                           {}, pred_channel.mcLumi)
+                 for b in cfg.bins]
+    print [h.Integral() for h in mc_signal]
+    mc_control = [buildHist(mc, tfiles2, cfg.bin_fmt % (cfg.binName, b, "_BKG", cfg.hname),
+                            {}, ctrl_channel.mcLumi)
+                  for b in cfg.bins]
+    deltaR = []
+    for sig, ctrl in zip(mc_signal, mc_control):
+        nsig = sig.GetBinContent(1)
+        nctrl = ctrl.GetBinContent(1)
+        sigma_sig = sig.GetBinError(1)
+        print "Sig", sigma_sig/nsig, nsig
+        sigma_ctrl = ctrl.GetBinError(1)
+        print "Ctrl", sigma_ctrl/nctrl, nctrl
+        a = sigma_sig* (1.0/nctrl) if nctrl > 0 else 0
+        b = sigma_ctrl * (-1.0*nsig)/(nctrl**2) if nctrl > 0 else 0
+        deltaR.append(math.sqrt(a**2 + b**2))
+    return deltaR
 
 def getSystematicsBkg(pred_channel, ctrl_channel=None):
     """ Return all background systematics filtered by the includeBackgroundSysts
     list"""
     syst_funcs = {
-        "jec"    : jecSystematicBkg,
-        "metres" : metresSystematicBkg,
+        "jec"    : jecFlatSystematicBkg,
+        "metres" : metres11SystematicBkg,
         "pol"    : polSystematicBkg,
         "lep"    : lepSystematicBkg,
         "Wtt"    : WttSystematicBkg
@@ -217,22 +265,48 @@ def getSystematicsBkg(pred_channel, ctrl_channel=None):
         if syst in pred_channel.includeBackgroundSysts: out += [(syst, syst_funcs[syst](pred_channel, ctrl_channel))]
     return out
 
+def getLiterallyAllSystematicsBkg(pred_channel, ctrl_channel=None):
+    """ Return all background systematics filtered by the includeBackgroundSysts
+    list"""
+    syst_funcs = {
+        "jec"    : jecSystematicBkg,
+        "jec_flat" : jecFlatSystematicBkg,
+        "metres" : metresSystematicBkg,
+        "metres11" : metres11SystematicBkg,
+        "metres12" : metres12SystematicBkg,
+        "pol"    : polSystematicBkg,
+        "lep"    : lepSystematicBkg,
+        "Wtt"    : WttSystematicBkg
+        }
+    out = []
+    for syst,syst_func in syst_funcs.iteritems():
+        out += [(syst, syst_funcs[syst](pred_channel, ctrl_channel))]
+    return out
+
 # Signal Systematics
 
 def jecSystematicSignalEff(channel):
     return (extractSignalEffs(channel, "metup", cfg.susyScan, asdict=True),
             extractSignalEffs(channel, "metdown", cfg.susyScan, asdict=True))
+def jecFlatSystematicSignalEff(channel):
+    return (extractSignalEffs(channel, "metup_flat", cfg.susyScan, asdict=True),
+            extractSignalEffs(channel, "metdown_flat", cfg.susyScan, asdict=True))
+
 def metresSystematicSignalEff(channel):
     one = extractSignalEffs(channel, "metres", cfg.susyScan, asdict=True)
     return (one, one)
+def metres11SystematicSignalEff(channel):
+    one = extractSignalEffs(channel, "metres11", cfg.susyScan, asdict=True)
+    return (one, one)
+
 def lepSystematicSignalEff(channel):
     one = extract(channel, "muscale", cfg.susyScan, asdict=True)
     return (one, one)
 
 def getSystematicsSignalEff(channel):
     syst_funcs = {
-        "jec" : jecSystematicSignalEff,
-        "metres" : metresSystematicSignalEff,
+        "jec" : jecFlatSystematicSignalEff,
+        "metres" : metres11SystematicSignalEff,
         "lep" : lepSystematicSignalEff
         }
     out = []
@@ -293,6 +367,9 @@ def getZeroData(pred_channel, ctrl_channel=None):
 def getZeroMCSignal(channel):
     """ Return mSUGRA efficiencies without systematic variation"""
     return extractSignalEffs(channel, "zero", cfg.susyScan, asdict=True)
+
+def getZeroMCSignalControlRegion(channel):
+    return extractSignalEffs(channel, "zero", cfg.susyScan, asdict=True, label="_BKG")
 
 def makePredictions(data):
     """ Turn BinData objects into BinResult representing prediction """

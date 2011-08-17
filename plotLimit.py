@@ -8,10 +8,16 @@ import utils
 files = [
     # ("limit_data", "limit500pbdata.pkl"),
     # ("limit_mc", "limit_mc.pkl"),
-    ("limit_nlo", "limit_nlo.pkl"),
-    ("limit_lm1", "limit_lm1.pkl"),
-    ("new", "limit_eles_mc_lm1_new.pkl"),
-    ("limit_data", "limit_data_new.pkl")
+#    ("limit_mc", "lim_mc.pkl"),
+    ("limit_data_nlo_pl", "limit_nlo_data_16082011.pkl"),
+    ("limit_data_nlo_cls", "limit_data_cls_nlo.pkl"),
+    ("limit_exp_nlo_cls", "limit_exp_nlo_cls_17082011.pkl"),
+    # ("limit_sz", "limit_sweetzone_test_is_badly_sweetzone.pkl"),
+    # ("limit_2_mcstats", "limit_2_mcstats.pkl"),
+    # ("limit_data_lo", "limit_13082011_obs_lo.pkl"),
+    # ("limit_exp", "limit_exp_15082011_500.pkl"),
+#    ("limit_data_lo", "limit_data_fixed_lo.pkl"),
+#    ("limit_data_nlo", "limit_data_fixed_nlo.pkl"),
     ]
 
 nogc = []
@@ -122,29 +128,37 @@ def extractHists(d):
         for k in ["pl", "clsviatoys"]:
             if k in p["results"]:
                 (x, y) = int(p["channels"][0]["m0"])/10, int(p["channels"][0]["m1/2"])/10
-                if k == "pl": ul = p["results"]["pl"]["limit"]["high"]
-                elif k == "clsviatoys":  ul = p["results"]["clsviatoys"]["limit"]["CLs"]
+                if k == "pl":
+                    ul = p["results"]["pl"]["limit"]["high"]
+                    excluded = (ul <= 1.0)
+                elif k == "clsviatoys":
+                    ul = p["results"]["clsviatoys"]["limit"]["CLs"]
+                    excluded = p["results"]["clsviatoys"]["limit"]["CLs"] < 0.05
                 auto.setcontent("hLimit_%s" % k, "Limit %s" % lumiString, hist_opts, (x, y, ul))
                 for syst in utils.getAllSystematics():
                     if syst in p["results"][k]:
                         auto.setcontent("nu%s" % syst, "Nuisance %s" % syst, hist_opts,
                                         (x, y, p["results"]["pl"][syst]))
                 print ul
-                if ul <= 1:
+                if excluded:
                     auto.setcontent("hExcluded_%s" % k, "Excluded %s" % lumiString,
                                     hist_opts, (x, y, 1))
 
-        if "quantiles" in p:
-            for k, v in p["quantiles"].iteritems():
-                name = "quantile_%s_limit" % k
-                if not name in out:
-                    out[name] = r.TH2D(k+"_limit", k, *hist_opts)
-                out[name].SetBinContent(x, y, v)
-                name = "quantile_%s_excluded" % k
-                if v <= 1:
-                    if not name in out:
-                        out[name] = r.TH2D(k+"_excluded", k, *hist_opts)
-                    out[name].SetBinContent(x, y, 1)
+        if "quantiles" in p["results"]:
+            quantiles = p["results"]["quantiles"]
+            exlude_fn = lambda x : x < 1.0
+        elif "clsviatoys" in p["results"]:
+            quantiles = dict([(k, v) for k, v in p["results"]["clsviatoys"]["limit"].iteritems() if "Median" in k])
+            exclude_fn = lambda x : x < 0.05
+        else:
+            quantiles = None
+            continue
+        for k, v in quantiles.iteritems():
+            name = "quantile_%s_limit" % k
+            auto.setcontent(name, name, hist_opts, (x, y, v))
+            name = "quantile_%s_excluded" % k
+            if exclude_fn(v):
+                auto.setcontent(name, name, hist_opts, (x, y, 1))
     return auto
 
 if __name__ == "__main__":
@@ -164,11 +178,14 @@ if __name__ == "__main__":
         h = extractHists(j)
         for k, v in h.hists.iteritems():
             plot2d(v, k, dir=lname, **h.opts[k])
-
-        obs_contour = contour(h.hists["hExcluded_pl"])
-#        overlay_contours += [(lname, obs_contour)]
-        conts = [("observed", obs_contour)]
+        if "hExcluded_pl" in h.hists:
+            obs_contour = contour(h.hists["hExcluded_pl"])
+            #        overlay_contours += [(lname, obs_contour)]
+            conts = [("observed", obs_contour)]
+        else:
+            conts = []
         for name, hist in h.hists.iteritems():
+            print name
             if not name.startswith("quantile"): continue
             plot2d(hist, name, dir=lname, **h.opts[name])
             if name.endswith("excluded"):
