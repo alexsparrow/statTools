@@ -1,7 +1,11 @@
 # Configuration file
 import math
 # SumLepPT (or PFMET bins)
-bins = [150, 250, 350, 450]
+
+#WARNING to you you awful noob!!! If you change this, emember to properly
+#correct ewKN further down or things will be screwed!! Neither of us wants that
+#to happen do we?
+bins = [250, 350, 450]
 
 useRealData = True
 icfNEventsIn = 10000.
@@ -51,7 +55,7 @@ hname_noweight = "SM_Events_noweight"
 # Which susyScan to use
 susyScan = "tanbeta10"
 # use NLO signal xs for limit?
-use_nloxs = False
+use_nloxs = True
 
 processes = ["gg", "sb", "ss", "sg", "ll", "nn", "ng", "bb", "tb", "ns"]
 
@@ -98,7 +102,7 @@ class Muon:
     # Integrated luminosity to use for limit setting/systs
     lumi = 1082.0*lumiCorrection
     # Trigger efficiency
-    triggerEfficiency = 0.91 if useRealData else 1.0
+    triggerEfficiency = 0.91
     # background MC to use in pseudo-data
     bkgSamples = ["w", "tt", "z"]
     # signal MC to use in pseudo-data
@@ -155,7 +159,7 @@ class Electron:
     # Integrated luminosity to use for limit setting/systs
     lumi = 1079.0*lumiCorrection
     # Trigger efficiency
-    triggerEfficiency = 0.96 if useRealData else 1.0
+    triggerEfficiency = 0.96
 
     # background MC to use in pseudo-data
     bkgSamples = ["w", "tt", "z"]
@@ -208,10 +212,10 @@ class Electron:
     # Old numbers without residual corrections applied
     # ewkN   = [292, 94, 21, 11]
     # ewkErr = [23,  12, 5,  4 ]
-    ewkN   = [329.4, 117.6, 25.9, 12.4]
+    ewkN   = [329.4, 117.6, 25.9, 12.4][1:]
     #    ewkErr = [22.7,  11.6, 5.8,  3.8 ]
-    ewkErrStat = [0.05, 0.09, 0.16, 0.24]
-    ewkErrMCStat = [0.09, 0.16, 0.25, 0.32]
+    ewkErrStat = [0.05, 0.09, 0.16, 0.24][1:]
+    ewkErrMCStat = [0.09, 0.16, 0.25, 0.32][1:]
     ewkErr = [math.sqrt(a**2 + b**2)*c for a, b, c in zip(ewkErrStat, ewkErrMCStat, ewkN)]
     ctrlChannel = Muon
 

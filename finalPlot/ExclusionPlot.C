@@ -40,6 +40,7 @@ void CommandMSUGRA(TString plotName_,
   tmp << tanBeta_;
   TString tanb( tmp.str() );
 
+  lo = false;
 
   // Output file
   cout << " create " << plotName_ << endl;
@@ -101,12 +102,18 @@ void CommandMSUGRA(TString plotName_,
   }
   if(tanBeta_ == 10){
 
-
-    First = get1fbObs();
-    Second = get1fbExp();
-    Second_up = get1fbUp();
-    Second_low = get1fbLow();
-    Third = getCLS();
+    if(lo){
+      First = get1fbObs_LO();
+      Second = get1fbExp_LO();
+      Second_up = get1fbUp_LO();
+      Second_low = get1fbLow_LO();
+    }
+    else{
+      First = get1fbObs();
+      Second = get1fbExp();
+      Second_up = get1fbUp();
+      Second_low = get1fbLow();
+    }
   }
   if(tanBeta_ == 50){
     First = getObserved_NLO_tanBeta50();
@@ -200,9 +207,9 @@ void CommandMSUGRA(TString plotName_,
   sSecond_low->SetLineWidth(3);
 
 
-  TSpline3 * sThird = new TSpline3("sThird", Third);
-  sThird->SetLineColor(kOrange);
-  sThird->SetLineWidth(3);
+  // TSpline3 * sThird = new TSpline3("sThird", Third);
+  // sThird->SetLineColor(kOrange);
+  // sThird->SetLineWidth(3);
   // TSpline3 *sQCDZero = new TSpline3("sQCDZero",QCDZero);
   // sQCDZero->SetLineColor(kPink-7);
   // sQCDZero->SetLineWidth(3);
@@ -218,7 +225,7 @@ void CommandMSUGRA(TString plotName_,
   // UNCOMMENT!!!
    sSecond_up->Draw("same");
   sSecond_low->Draw("same");
-  sThird->Draw("same");
+  //  sThird->Draw("same");
 
   //constant squark and gluino mass contours
   for (int it=1;it<6;it++) {
@@ -296,8 +303,12 @@ void CommandMSUGRA(TString plotName_,
 
   myleg->SetHeader("95% C.L. Limits:");
   //myleg->AddEntry(sFirst,"Observed Limit (NLO), PL","L");
-  myleg->AddEntry(sThird,"Observed Limit (NLO), CL_{s}","L");
-
+  if(lo){
+    myleg->AddEntry(sFirst,"Observed Limit (LO), CL_{s}","L");
+  }
+  else{
+    myleg->AddEntry(sFirst,"Observed Limit (NLO), CL_{s}","L");
+  }
   // myleg->AddEntry(sQCDZero,"#alpha_{T} shape analysis PL QCD(0), EWK flat (LO), 769pb^{-1} (Expected)","L");
   // myleg->AddEntry(sQCDSideBand,"#alpha_{T} shape analysis PL QCD(EXP) sideband, EWK flat (LO), 769pb^{-1} (expected)","L");
   // myleg->AddEntry(sATLcomb,"ATLAS: 0lep combined CLs (NLO), 165pb^{-1}","L");
@@ -313,7 +324,7 @@ void CommandMSUGRA(TString plotName_,
   sSecond_low->SetFillStyle(1001);
   sSecond_low->SetFillColor(10);
 
-  //sFirst->Draw("same");
+  sFirst->Draw("same");
 
   // UNCOMMENT!!!!
   sSecond->Draw("same");
@@ -356,8 +367,8 @@ void CommandMSUGRA(TString plotName_,
   cvsSys->Write();
 
 
-  cvsSys->SaveAs("RA1_ExclusionLimit_tanb"+tanb+".pdf");
-  cvsSys->SaveAs("RA1_ExclusionLimit_tanb"+tanb+".png");
+  cvsSys->SaveAs("RA4_ExclusionLimit_tanb"+tanb+".pdf");
+  cvsSys->SaveAs("RA4_ExclusionLimit_tanb"+tanb+".png");
 
 
   output->Write();
