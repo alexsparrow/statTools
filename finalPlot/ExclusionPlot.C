@@ -110,7 +110,7 @@ void CommandMSUGRA(TString plotName_,
     }
     else{
       First = get1fbObs();
-      Second = get1fbExp();
+      Second = get1fbObs186();
       Second_up = get1fbUp();
       Second_low = get1fbLow();
     }
@@ -192,7 +192,7 @@ void CommandMSUGRA(TString plotName_,
   sFirst->SetLineWidth(3);
 
   TSpline3 *sSecond = new TSpline3("sSecond",Second);
-  sSecond->SetLineColor(kBlue+3);
+  sSecond->SetLineColor(kBlue);
   sSecond->SetLineStyle(4);
   sSecond->SetLineWidth(3);
 
@@ -223,8 +223,8 @@ void CommandMSUGRA(TString plotName_,
   //  sThird->SetLineWidth(3);
 
   // UNCOMMENT!!!
-   sSecond_up->Draw("same");
-  sSecond_low->Draw("same");
+  //  sSecond_up->Draw("same");
+  // sSecond_low->Draw("same");
   //  sThird->Draw("same");
 
   //constant squark and gluino mass contours
@@ -294,7 +294,7 @@ void CommandMSUGRA(TString plotName_,
 
 
   //expected and observed (LO & NLO) contours
-  TLegend* myleg = new TLegend(0.55,0.75,0.9,0.9,NULL,"brNDC");
+  TLegend* myleg = new TLegend(0.25,0.75,0.9,0.9,NULL,"brNDC");
   myleg->SetFillColor(0);
   myleg->SetShadowColor(0);
   myleg->SetTextSize(0.03);
@@ -308,14 +308,15 @@ void CommandMSUGRA(TString plotName_,
   }
   else{
     myleg->AddEntry(sFirst,"Observed Limit (NLO), CL_{s}","L");
+    myleg->AddEntry(sSecond, "Observed Limit with Stats Correction (NLO), CL_{s}","L");
   }
   // myleg->AddEntry(sQCDZero,"#alpha_{T} shape analysis PL QCD(0), EWK flat (LO), 769pb^{-1} (Expected)","L");
   // myleg->AddEntry(sQCDSideBand,"#alpha_{T} shape analysis PL QCD(EXP) sideband, EWK flat (LO), 769pb^{-1} (expected)","L");
   // myleg->AddEntry(sATLcomb,"ATLAS: 0lep combined CLs (NLO), 165pb^{-1}","L");
   // myleg->AddEntry(,"#alpha_{T} cut&count, 35pb^{-1}","L");
 
-  myleg->AddEntry(sSecond,"Median Expected Limit","L");
-  myleg->AddEntry(sSecond_up,"Expected Limit #pm 1 #sigma","F");
+  // myleg->AddEntry(sSecond,"Median Expected Limit","L");
+  // myleg->AddEntry(sSecond_up,"Expected Limit #pm 1 #sigma","F");
 
 
   sSecond_up->SetFillStyle(4010);
