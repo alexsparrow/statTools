@@ -136,12 +136,12 @@ void CommandMSUGRA(TString plotName_,
 
   //   TH2F* hist = getHisto("/home/hep/elaird1/public_html/57_stat_plots/05_cmssm_fc/","ExclusionLimit","feldmanCousins_tanBeta"+tanb+"_nlo_1HtBin_expR.root");
 
-  TH2F* hist = new TH2F("h1","h1",100,0, 1800, 100,0, 600);
+  TH2F* hist = new TH2F("h1","h1",100,0, 1800, 100,0, 700);
 
   hist->GetXaxis()->SetRangeUser(0,2000);
   if (tanBeta_ == 10)  hist->GetXaxis()->SetRangeUser(0,2000);
   if (tanBeta_ == 50)  hist->GetXaxis()->SetRangeUser(0,2000);
-  hist->GetYaxis()->SetRangeUser(0,600);
+  hist->GetYaxis()->SetRangeUser(0,700);
 
 
   hist->SetLineWidth(3);
@@ -232,7 +232,7 @@ void CommandMSUGRA(TString plotName_,
     lngl[it]->Draw("same");
     lnsq[it]->Draw("same");
     // if(it != 5)
-    sq_text[it]->Draw();
+    if(it != 5) sq_text[it]->Draw();
     gl_text[it]->Draw();
   }
 

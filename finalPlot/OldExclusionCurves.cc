@@ -380,7 +380,7 @@ TLatex* constant_gluino_text(Int_t it,TF1& lngl, Int_t tanBeta_){
   Double_t place_x = 423;
   Double_t place_y = 18;
   if (tanBeta_ == 10 ) {
-    place_x = 1675;
+    place_x = 1475;
     place_y = -15;
   }
   if (tanBeta_ == 50 ) {
