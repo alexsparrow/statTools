@@ -91,6 +91,11 @@ void CommandMSUGRA(TString plotName_,
   //  TGraphErrors* Third;
   TGraphErrors* Second_up;
   TGraphErrors* Second_low;
+  TGraphErrors* LS_obs;
+  TGraphErrors* LS_exp;
+  TGraphErrors* LS_up;
+  TGraphErrors* LS_low;
+
   // QCDZero = get776QCDZeroExp();
   // QCDSideBand = get776SidBandExp();
   if(tanBeta_ == 3){
@@ -113,6 +118,10 @@ void CommandMSUGRA(TString plotName_,
       Second = get1fbExp();
       Second_up = get1fbUp();
       Second_low = get1fbLow();
+      LS_obs = get1fbObs_LS();
+      LS_exp = get1fbExp_LS();
+      LS_up = get1fbUp_LS();
+      LS_low = get1fbLow_LS();
     }
   }
   if(tanBeta_ == 50){
@@ -136,12 +145,12 @@ void CommandMSUGRA(TString plotName_,
 
   //   TH2F* hist = getHisto("/home/hep/elaird1/public_html/57_stat_plots/05_cmssm_fc/","ExclusionLimit","feldmanCousins_tanBeta"+tanb+"_nlo_1HtBin_expR.root");
 
-  TH2F* hist = new TH2F("h1","h1",100,0, 1800, 100,0, 700);
+  TH2F* hist = new TH2F("h1","h1",100,0, 1800, 100,80, 440);
 
   hist->GetXaxis()->SetRangeUser(0,2000);
   if (tanBeta_ == 10)  hist->GetXaxis()->SetRangeUser(0,2000);
   if (tanBeta_ == 50)  hist->GetXaxis()->SetRangeUser(0,2000);
-  hist->GetYaxis()->SetRangeUser(0,700);
+  hist->GetYaxis()->SetRangeUser(80,450);
 
 
   hist->SetLineWidth(3);
@@ -188,23 +197,42 @@ void CommandMSUGRA(TString plotName_,
 
 
   TSpline3 *sFirst = new TSpline3("sFirst",First);
-  sFirst->SetLineColor(kRed);
+  sFirst->SetLineColor(kBlue);
   sFirst->SetLineWidth(3);
 
   TSpline3 *sSecond = new TSpline3("sSecond",Second);
-  sSecond->SetLineColor(kBlue+3);
+  sSecond->SetLineColor(kCyan);
   sSecond->SetLineStyle(4);
-  sSecond->SetLineWidth(3);
+  sSecond->SetLineWidth(2);
 
   TSpline3 *sSecond_up = new TSpline3("sSecond_up",Second_up);
   sSecond_up->SetLineColor(kCyan);
   sSecond_up->SetLineStyle(1);
-  sSecond_up->SetLineWidth(3);
+  sSecond_up->SetLineWidth(2);
 
   TSpline3 *sSecond_low = new TSpline3("sSecond_low",Second_low);
   sSecond_low->SetLineColor(kCyan);
   sSecond_low->SetLineStyle(1);
-  sSecond_low->SetLineWidth(3);
+  sSecond_low->SetLineWidth(2);
+
+  TSpline3 *sLS_obs = new TSpline3("sLS_obs",LS_obs);
+  sLS_obs->SetLineColor(kRed);//kGreen+2);
+  sLS_obs->SetLineWidth(3);
+
+  TSpline3 *sLS_exp = new TSpline3("sLS_exp",LS_exp);
+  sLS_exp->SetLineColor(kRed-7);//kGreen);
+  sLS_exp->SetLineStyle(4);
+  sLS_exp->SetLineWidth(2);
+
+  TSpline3 *sLS_up = new TSpline3("sLS_up",LS_up);
+  sLS_up->SetLineColor(kRed-7);//kGreen);
+  sLS_up->SetLineStyle(1);
+  sLS_up->SetLineWidth(2);
+
+  TSpline3 *sLS_low = new TSpline3("sLS_low",LS_low);
+  sLS_low->SetLineColor(kRed-7);//kGreen);
+  sLS_low->SetLineStyle(1);
+  sLS_low->SetLineWidth(2);
 
 
   // TSpline3 * sThird = new TSpline3("sThird", Third);
@@ -223,8 +251,12 @@ void CommandMSUGRA(TString plotName_,
   //  sThird->SetLineWidth(3);
 
   // UNCOMMENT!!!
-   sSecond_up->Draw("same");
+  sSecond_up->Draw("same");
   sSecond_low->Draw("same");
+
+  sLS_up->Draw("same");
+  sLS_low->Draw("same");
+
   //  sThird->Draw("same");
 
   //constant squark and gluino mass contours
@@ -294,7 +326,7 @@ void CommandMSUGRA(TString plotName_,
 
 
   //expected and observed (LO & NLO) contours
-  TLegend* myleg = new TLegend(0.55,0.75,0.9,0.9,NULL,"brNDC");
+  TLegend* myleg = new TLegend(0.5,0.65,0.9,0.9,NULL,"brNDC");
   myleg->SetFillColor(0);
   myleg->SetShadowColor(0);
   myleg->SetTextSize(0.03);
@@ -307,16 +339,19 @@ void CommandMSUGRA(TString plotName_,
     myleg->AddEntry(sFirst,"Observed Limit (LO), CL_{s}","L");
   }
   else{
-    myleg->AddEntry(sFirst,"Observed Limit (NLO), CL_{s}","L");
+    myleg->AddEntry(sFirst,"L_{P}: Observed Limit (NLO), CL_{s}","L");
   }
   // myleg->AddEntry(sQCDZero,"#alpha_{T} shape analysis PL QCD(0), EWK flat (LO), 769pb^{-1} (Expected)","L");
   // myleg->AddEntry(sQCDSideBand,"#alpha_{T} shape analysis PL QCD(EXP) sideband, EWK flat (LO), 769pb^{-1} (expected)","L");
   // myleg->AddEntry(sATLcomb,"ATLAS: 0lep combined CLs (NLO), 165pb^{-1}","L");
   // myleg->AddEntry(,"#alpha_{T} cut&count, 35pb^{-1}","L");
 
-  myleg->AddEntry(sSecond,"Median Expected Limit","L");
-  myleg->AddEntry(sSecond_up,"Expected Limit #pm 1 #sigma","F");
+  myleg->AddEntry(sSecond,"L_{P}: Median Expected Limit","L");
+  myleg->AddEntry(sSecond_up,"L_{P}: Expected Limit #pm 1 #sigma","F");
 
+  myleg->AddEntry(sLS_obs, "LS : Observed Limit (NLO), CL_{s}", "L");
+  myleg->AddEntry(sLS_exp, "LS : Median Expected Limit", "L");
+  myleg->AddEntry(sLS_up, "LS : Expected Limit #pm 1 #sigma", "F");
 
   sSecond_up->SetFillStyle(4010);
   sSecond_up->SetFillColor(kCyan-10);
@@ -324,10 +359,18 @@ void CommandMSUGRA(TString plotName_,
   sSecond_low->SetFillStyle(1001);
   sSecond_low->SetFillColor(10);
 
+  // sLS_up->SetFillStyle(4010);
+  // sLS_up->SetFillColor(kGreen+2-10);
+
+  // sLS_low->SetFillStyle(1001);
+  // sLS_low->SetFillColor(10);
+
   sFirst->Draw("same");
+  sLS_obs->Draw("same");
 
   // UNCOMMENT!!!!
   sSecond->Draw("same");
+  sLS_exp->Draw("same");
   // sQCDZero->Draw("same");
   // sQCDSideBand->Draw("same");
 

@@ -135,7 +135,98 @@ TGraphErrors* get1fbExp_LO(){
 
 }
 
+// LS Method
+TGraphErrors* get1fbObs_LS(){
+  Int_t nl = 23;
+  Double_t xl[23]={20  , 40,   60,  80,  100, 200, 300, 400,  500,  600,  650,   700,   800,   900, 1000, 1100,  1200, 1300,  1400,  1500, 1600, 1700, 1800};
+  Double_t yl[23]={210,  290,  360, 374, 380, 382, 380, 379,  378,  372,  350,   330,   288,   260,  220,  195,   180,  170,   165,  162,  160,  156,  150};
+  Double_t exl[23];
+  Double_t eyl[23];
 
+  TGraphErrors* gr1 = new TGraphErrors(nl,xl,yl,exl,eyl);
+  gr1->SetMarkerColor(kBlue);
+  gr1->SetMarkerStyle(21);
+
+  //gr1->Draw("LP");
+
+  TSpline3 *s = new TSpline3("grs",gr1);
+  s->SetLineColor(kBlue);
+  s->SetLineStyle(2);
+  s->SetLineWidth(3);
+
+  return gr1;
+}
+
+TGraphErrors* get1fbExp_LS(){
+  Int_t nl = 23;
+  Double_t xl[23]={20  , 40,  60,  80,  100, 200, 300, 400, 500, 600, 650, 700,  800,  900,  1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800};
+  Double_t yl[23]={210,  290, 320, 360, 365, 370, 369, 366, 362, 360, 340, 310 , 262,  230,  200,  170,  160,  150,  145,  142 , 140,  135, 130};
+
+  Double_t exl[23];
+  Double_t eyl[23];
+
+  TGraphErrors* gr1 = new TGraphErrors(nl,xl,yl,exl,eyl);
+  gr1->SetMarkerColor(kBlue);
+  gr1->SetMarkerStyle(21);
+
+  //gr1->Draw("LP");
+
+  TSpline3 *s = new TSpline3("grs",gr1);
+  s->SetLineColor(kBlue);
+  s->SetLineStyle(2);
+  s->SetLineWidth(3);
+
+  return gr1;
+
+}
+
+TGraphErrors* get1fbLow_LS(){
+  Int_t nl = 15;
+  Double_t xl[15]={20  , 40,  60,  80,  100, 200, 300, 400, 500, 600, 650, 700,  800,  900,  1000 /*1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800*/};
+  Double_t yl[15]={210,  290, 310, 334, 342, 340, 338, 336, 334, 305, 270, 230 , 190,  150,  130  /*170,  160,  150,  145,  142 , 140,  135, 130*/};
+
+  Double_t exl[15];
+  Double_t eyl[15];
+
+  TGraphErrors* gr1 = new TGraphErrors(nl,xl,yl,exl,eyl);
+  gr1->SetMarkerColor(kBlue);
+  gr1->SetMarkerStyle(21);
+
+  //gr1->Draw("LP");
+
+  TSpline3 *s = new TSpline3("grs",gr1);
+  s->SetLineColor(kBlue);
+  s->SetLineStyle(2);
+  s->SetLineWidth(3);
+
+  return gr1;
+
+}
+
+TGraphErrors* get1fbUp_LS(){
+  Int_t nl = 22;
+  Double_t xl[22]={20  , 40,  60,  80,  100, 200, 300, 400, 500, 600,  700,  800,  900,  1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800};
+  Double_t yl[22]={210,  290, 380, 390, 395, 394, 392, 390, 388, 380,  350 , 300,  268,  230,  205,  190,  182,  172,  168 , 163,  160,  155};
+
+  Double_t exl[22];
+  Double_t eyl[22];
+
+  TGraphErrors* gr1 = new TGraphErrors(nl,xl,yl,exl,eyl);
+  gr1->SetMarkerColor(kBlue);
+  gr1->SetMarkerStyle(21);
+
+  //gr1->Draw("LP");
+
+  TSpline3 *s = new TSpline3("grs",gr1);
+  s->SetLineColor(kBlue);
+  s->SetLineStyle(2);
+  s->SetLineWidth(3);
+
+  return gr1;
+
+}
+
+// END
 TGraphErrors* get1fbObs(){
   Int_t nl = 21-2;
   Double_t xl[21]={0  , 100, 200, 300, 400, 500, 600, 700,  800,  900,  1000,  1100,  1200,  1300, 1400, 1500,  1600, 1700,  1800/*,  1900,2000*/};
