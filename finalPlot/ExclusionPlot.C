@@ -109,6 +109,7 @@ void CommandMSUGRA(TString plotName_,
       Second_low = get1fbLow_LO();
     }
     else{
+      //      First = get1fbExp();
       First = get1fbObs();
       Second = get1fbExp();
       Second_up = get1fbUp();
@@ -136,7 +137,9 @@ void CommandMSUGRA(TString plotName_,
 
   //   TH2F* hist = getHisto("/home/hep/elaird1/public_html/57_stat_plots/05_cmssm_fc/","ExclusionLimit","feldmanCousins_tanBeta"+tanb+"_nlo_1HtBin_expR.root");
 
-  TH2F* hist = new TH2F("h1","h1",100,0, 1800, 100,0, 700);
+  //TFile* lfile = new TFile("limit.root");
+  //  TH2D* hist = lfile->Get("limit_exp_nlo_cls_up/quantile_Median_excluded")->Clone();
+    TH2F* hist = new TH2F("h1","h1",100,0, 1800, 100,0, 700);
 
   hist->GetXaxis()->SetRangeUser(0,2000);
   if (tanBeta_ == 10)  hist->GetXaxis()->SetRangeUser(0,2000);
@@ -147,10 +150,8 @@ void CommandMSUGRA(TString plotName_,
   hist->SetLineWidth(3);
   hist->SetLineColor(9);
   hist->SetLineStyle(2);
-
-  output->cd();
-  hist->Reset();
-  hist->Draw();
+  //  hist->Reset();
+  hist->Draw("colz");
 
   cvsSys->Update();
 
